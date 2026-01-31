@@ -83,16 +83,38 @@ jobs:
           # Add ARM64 architecture for cross-compilation libraries
           sudo dpkg --add-architecture arm64
           
-          # Update sources to include ARM64 packages
-          # Ubuntu runners use azure mirrors, need to add ports for arm64
-          sudo tee /etc/apt/sources.list.d/arm64.list << 'EOF'
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
+          # Get Ubuntu codename
+          CODENAME=$(lsb_release -cs)
+          echo "Ubuntu codename: $CODENAME"
+          
+          # Create sources list for arm64 from ports.ubuntu.com
+          sudo tee /etc/apt/sources.list.d/arm64-ports.list << EOF
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ ${CODENAME} main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ ${CODENAME}-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ ${CODENAME}-security main restricted universe multiverse
           EOF
           
-          # Pin amd64 to default sources
-          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          # Fix all existing sources to be amd64 only
+          # Handle both traditional sources.list and newer .sources format
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i 's/^deb \[/deb [arch=amd64,/; s/^deb http/deb [arch=amd64] http/' /etc/apt/sources.list
+          fi
+          
+          # Handle sources in sources.list.d (excluding our new arm64 file)
+          for f in /etc/apt/sources.list.d/*.list; do
+            if [ -f "$f" ] && [ "$f" != "/etc/apt/sources.list.d/arm64-ports.list" ]; then
+              sudo sed -i 's/^deb \[/deb [arch=amd64,/; s/^deb http/deb [arch=amd64] http/' "$f"
+            fi
+          done
+          
+          # Handle .sources format files (Ubuntu 24.04+ DEB822 format)
+          for f in /etc/apt/sources.list.d/*.sources; do
+            if [ -f "$f" ]; then
+              if ! grep -q "^Architectures:" "$f"; then
+                sudo sed -i '/^Types:/a Architectures: amd64' "$f"
+              fi
+            fi
+          done
           
           sudo apt-get update
           sudo apt-get install -y \
