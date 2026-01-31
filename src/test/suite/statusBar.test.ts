@@ -6,6 +6,10 @@ import * as assert from 'assert';
 import { NowPlayingStatusBar } from '../../ui/statusBar';
 import type { StatusResponse } from '../../types';
 
+// Mocha globals are provided by the VS Code test runner
+declare const describe: Mocha.SuiteFunction;
+declare const it: Mocha.TestFunction;
+
 // Mock vscode module for unit testing
 const mockStatusBarItem = {
   text: '',

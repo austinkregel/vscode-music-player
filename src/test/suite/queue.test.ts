@@ -7,6 +7,11 @@ import { QueueManager } from '../../queue/manager';
 import { MockIPCClient } from '../mocks/ipcClient';
 import type { Track } from '../../types';
 
+// Mocha globals are provided by the VS Code test runner
+declare const describe: Mocha.SuiteFunction;
+declare const it: Mocha.TestFunction;
+declare const beforeEach: Mocha.HookFunction;
+
 describe('QueueManager', () => {
   let manager: QueueManager;
   let mockClient: MockIPCClient;

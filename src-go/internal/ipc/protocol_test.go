@@ -261,7 +261,10 @@ func TestPlayRequest(t *testing.T) {
 
 func TestQueueRequest(t *testing.T) {
 	queueReq := QueueRequest{
-		Paths:  []string{"/song1.mp3", "/song2.mp3"},
+		Items: []QueueItem{
+			{Path: "/song1.mp3"},
+			{Path: "/song2.mp3"},
+		},
 		Append: true,
 	}
 
@@ -275,8 +278,12 @@ func TestQueueRequest(t *testing.T) {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	if len(decoded.Paths) != 2 {
-		t.Errorf("Expected 2 paths, got %d", len(decoded.Paths))
+	if len(decoded.Items) != 2 {
+		t.Errorf("Expected 2 items, got %d", len(decoded.Items))
+	}
+
+	if decoded.Items[0].Path != "/song1.mp3" {
+		t.Errorf("Expected first path to be /song1.mp3, got %s", decoded.Items[0].Path)
 	}
 
 	if !decoded.Append {

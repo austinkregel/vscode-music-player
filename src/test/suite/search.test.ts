@@ -7,6 +7,12 @@ import { LibrarySearch } from '../../library/search';
 import { MetadataCache } from '../../metadata/cache';
 import { createTempDbPath, cleanupTestDb } from '../mocks/database';
 
+// Mocha globals are provided by the VS Code test runner
+declare const describe: Mocha.SuiteFunction;
+declare const it: Mocha.TestFunction;
+declare const beforeEach: Mocha.HookFunction;
+declare const afterEach: Mocha.HookFunction;
+
 describe('LibrarySearch', () => {
   let search: LibrarySearch;
   let cache: MetadataCache;

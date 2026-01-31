@@ -6,6 +6,12 @@ import * as assert from 'assert';
 import { MetadataCache } from '../../metadata/cache';
 import { createTestCache, createTempDbPath, cleanupTestDb } from '../mocks/database';
 
+// Mocha globals are provided by the VS Code test runner
+declare const describe: Mocha.SuiteFunction;
+declare const it: Mocha.TestFunction;
+declare const beforeEach: Mocha.HookFunction;
+declare const afterEach: Mocha.HookFunction;
+
 describe('MetadataCache', () => {
   let cache: MetadataCache;
   let dbPath: string;

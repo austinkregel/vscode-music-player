@@ -7,6 +7,12 @@ import { PlaylistManager } from '../../playlist/manager';
 import { MetadataCache } from '../../metadata/cache';
 import { createTempDbPath, cleanupTestDb } from '../mocks/database';
 
+// Mocha globals are provided by the VS Code test runner
+declare const describe: Mocha.SuiteFunction;
+declare const it: Mocha.TestFunction;
+declare const beforeEach: Mocha.HookFunction;
+declare const afterEach: Mocha.HookFunction;
+
 describe('PlaylistManager', () => {
   let manager: PlaylistManager;
   let cache: MetadataCache;

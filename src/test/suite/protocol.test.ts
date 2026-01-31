@@ -17,6 +17,10 @@ import {
   parseMessage,
 } from '../../daemon/protocol';
 
+// Mocha globals are provided by the VS Code test runner
+declare const describe: Mocha.SuiteFunction;
+declare const it: Mocha.TestFunction;
+
 describe('Protocol', () => {
   describe('encodeCommand', () => {
     it('should encode a simple command', () => {
