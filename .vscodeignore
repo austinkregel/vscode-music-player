@@ -1,0 +1,21 @@
+.vscode/**
+.vscode-test/**
+.cursor/**
+out/**
+node_modules/**
+src/**
+src-go/**
+.gitignore
+.yarnrc
+webpack.config.js
+vsc-extension-quickstart.md
+**/tsconfig.json
+**/eslint.config.mjs
+**/*.map
+**/*.ts
+**/.vscode-test.*
+Makefile
+CHANGELOG.md
+coverage/**
+*.plan.md# Include bin/ folder with daemon binaries
+!bin/**

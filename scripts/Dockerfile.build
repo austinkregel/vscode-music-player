@@ -1,0 +1,30 @@
+# Build container for musicd daemon
+# This ensures consistent builds regardless of host system package versions
+
+FROM golang:1.23-bookworm AS builder
+
+# Install ALSA development headers and build tools
+RUN apt-get update && apt-get install -y \
+    libasound2-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /build
+
+# Copy go.mod and go.sum first for better caching
+COPY src-go/go.mod src-go/go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY src-go/ ./
+
+# Build the daemon
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -ldflags "-s -w" -o /musicd ./cmd/musicd
+
+# Final stage - just the binary
+FROM scratch AS export
+COPY --from=builder /musicd /musicd

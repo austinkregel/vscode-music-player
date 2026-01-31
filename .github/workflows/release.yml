@@ -1,0 +1,328 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: '1.23'
+  NODE_VERSION: '20'
+
+jobs:
+  # Run tests first
+  test-go:
+    name: Test Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libdbus-1-dev
+
+      - name: Run Go tests
+        working-directory: src-go
+        run: go test ./... -v -race
+
+  test-extension:
+    name: Test Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Compile
+        run: npm run compile
+
+  # Build Go binaries for each platform
+  build-go-linux:
+    name: Build Go (Linux)
+    runs-on: ubuntu-latest
+    needs: test-go
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libdbus-1-dev
+
+      - name: Install cross-compilation tools (arm64)
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build (amd64)
+        if: matrix.arch == 'amd64'
+        working-directory: src-go
+        run: |
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+            go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" \
+            -o ../bin/musicd-linux-amd64 ./cmd/musicd
+
+      - name: Build (arm64)
+        if: matrix.arch == 'arm64'
+        working-directory: src-go
+        env:
+          CC: aarch64-linux-gnu-gcc
+          CGO_ENABLED: 1
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" \
+            -o ../bin/musicd-linux-arm64 ./cmd/musicd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicd-linux-${{ matrix.arch }}
+          path: bin/musicd-linux-${{ matrix.arch }}
+
+  build-go-macos:
+    name: Build Go (macOS)
+    runs-on: macos-latest
+    needs: test-go
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build
+        working-directory: src-go
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" \
+            -o ../bin/musicd-darwin-${{ matrix.arch }} ./cmd/musicd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicd-darwin-${{ matrix.arch }}
+          path: bin/musicd-darwin-${{ matrix.arch }}
+
+  build-go-windows:
+    name: Build Go (Windows)
+    runs-on: windows-latest
+    needs: test-go
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=dev-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build
+        working-directory: src-go
+        env:
+          CGO_ENABLED: 0
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o ../bin/musicd-windows-amd64.exe ./cmd/musicd
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: musicd-windows-amd64
+          path: bin/musicd-windows-amd64.exe
+
+  # Build and package the VS Code extension
+  build-extension:
+    name: Build Extension
+    runs-on: ubuntu-latest
+    needs: [test-extension, build-go-linux, build-go-macos, build-go-windows]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download all Go binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: bin
+          pattern: musicd-*
+          merge-multiple: true
+
+      - name: Make binaries executable
+        run: chmod +x bin/musicd-*
+
+      - name: List binaries
+        run: ls -la bin/
+
+      - name: Package extension
+        run: npm run package
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Get version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=0.0.0-dev.${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update version in package.json (for dev builds)
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        run: |
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version --allow-same-version || true
+
+      - name: Create VSIX package
+        run: vsce package --no-dependencies -o local-media-${{ steps.version.outputs.version }}.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-package
+          path: "*.vsix"
+
+  # Create GitHub Release on tag push
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build-extension
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          # Copy Go binaries
+          cp artifacts/musicd-linux-amd64/musicd-linux-amd64 release/
+          cp artifacts/musicd-linux-arm64/musicd-linux-arm64 release/
+          cp artifacts/musicd-darwin-amd64/musicd-darwin-amd64 release/
+          cp artifacts/musicd-darwin-arm64/musicd-darwin-arm64 release/
+          cp artifacts/musicd-windows-amd64/musicd-windows-amd64.exe release/
+          # Copy VSIX
+          cp artifacts/vsix-package/*.vsix release/
+          ls -la release/
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+          generate_release_notes: true
+          files: |
+            release/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Optional: Publish to VS Code Marketplace
+  # Uncomment and add VSCE_PAT secret to enable
+  # publish-marketplace:
+  #   name: Publish to Marketplace
+  #   runs-on: ubuntu-latest
+  #   needs: release
+  #   if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-')
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - name: Set up Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: ${{ env.NODE_VERSION }}
+  #         cache: 'npm'
+  #
+  #     - name: Install dependencies
+  #       run: npm ci
+  #
+  #     - name: Download VSIX
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: vsix-package
+  #
+  #     - name: Install vsce
+  #       run: npm install -g @vscode/vsce
+  #
+  #     - name: Publish to Marketplace
+  #       run: vsce publish -p ${{ secrets.VSCE_PAT }} --packagePath *.vsix

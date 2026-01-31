@@ -1,0 +1,370 @@
+{
+  "name": "local-media",
+  "displayName": "Local Media Player",
+  "description": "A VS Code music player extension with native OS media integration, powered by a headless Go daemon",
+  "version": "0.0.1",
+  "publisher": "austinkregel",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/austinkregel/vscode-music-player"
+  },
+  "engines": {
+    "vscode": "^1.108.1"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "music",
+    "audio",
+    "player",
+    "media",
+    "mp3",
+    "flac"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "local-media.connect",
+        "title": "Connect to Daemon",
+        "category": "Local Media"
+      },
+      {
+        "command": "local-media.disconnect",
+        "title": "Disconnect from Daemon",
+        "category": "Local Media"
+      },
+      {
+        "command": "local-media.play",
+        "title": "Play",
+        "category": "Local Media",
+        "icon": "$(play)"
+      },
+      {
+        "command": "local-media.pause",
+        "title": "Pause",
+        "category": "Local Media",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "local-media.playPause",
+        "title": "Play/Pause",
+        "category": "Local Media",
+        "icon": "$(play)"
+      },
+      {
+        "command": "local-media.stop",
+        "title": "Stop",
+        "category": "Local Media",
+        "icon": "$(primitive-square)"
+      },
+      {
+        "command": "local-media.next",
+        "title": "Next Track",
+        "category": "Local Media",
+        "icon": "$(chevron-right)"
+      },
+      {
+        "command": "local-media.previous",
+        "title": "Previous Track",
+        "category": "Local Media",
+        "icon": "$(chevron-left)"
+      },
+      {
+        "command": "local-media.showPlayer",
+        "title": "Show Player",
+        "category": "Local Media",
+        "icon": "$(music)"
+      },
+      {
+        "command": "local-media.scanLibrary",
+        "title": "Scan Music Library",
+        "category": "Local Media",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "local-media.openSettings",
+        "title": "Open Daemon Settings",
+        "category": "Local Media",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "local-media.setLibraryFolder",
+        "title": "Set Library Folder",
+        "category": "Local Media",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "local-media.addLibraryFolder",
+        "title": "Add Library Folder",
+        "category": "Local Media",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "local-media.playFile",
+        "title": "Play File",
+        "category": "Local Media",
+        "icon": "$(play)"
+      },
+      {
+        "command": "local-media.viewArtists",
+        "title": "View Artists",
+        "category": "Local Media",
+        "icon": "$(account)"
+      },
+      {
+        "command": "local-media.viewAlbums",
+        "title": "View Albums",
+        "category": "Local Media",
+        "icon": "$(library)"
+      },
+      {
+        "command": "local-media.viewTracks",
+        "title": "View All Tracks",
+        "category": "Local Media",
+        "icon": "$(file-media)"
+      },
+      {
+        "command": "local-media.viewPlaylists",
+        "title": "View Playlists",
+        "category": "Local Media",
+        "icon": "$(list-unordered)"
+      },
+      {
+        "command": "local-media.createPlaylist",
+        "title": "Create Playlist",
+        "category": "Local Media",
+        "icon": "$(add)"
+      },
+      {
+        "command": "local-media.renamePlaylist",
+        "title": "Rename Playlist",
+        "category": "Local Media",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "local-media.deletePlaylist",
+        "title": "Delete Playlist",
+        "category": "Local Media",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "local-media.addToPlaylist",
+        "title": "Add to Playlist",
+        "category": "Local Media",
+        "icon": "$(add)"
+      },
+      {
+        "command": "local-media.playAlbum",
+        "title": "Play Album",
+        "category": "Local Media",
+        "icon": "$(play)"
+      },
+      {
+        "command": "local-media.queueTrack",
+        "title": "Add to Queue",
+        "category": "Local Media",
+        "icon": "$(add)"
+      },
+      {
+        "command": "local-media.refreshLibrary",
+        "title": "Refresh Library View",
+        "category": "Local Media",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "local-media.goToArtist",
+        "title": "Go to Current Artist",
+        "category": "Local Media",
+        "icon": "$(account)"
+      }
+    ],
+    "configuration": {
+      "title": "Local Media Player",
+      "properties": {
+        "localMedia.libraryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to your music library (e.g., NFS mount)"
+        },
+        "localMedia.autoStartDaemon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the media daemon when connecting"
+        },
+        "localMedia.daemonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the musicd daemon binary (leave empty to use bundled)"
+        }
+      }
+    },
+    "views": {
+      "localMedia": [
+        {
+          "id": "localMedia.library",
+          "name": "Library"
+        },
+        {
+          "id": "localMedia.playlists",
+          "name": "Playlists"
+        },
+        {
+          "id": "localMedia.queue",
+          "name": "Queue"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "localMedia",
+          "title": "Music",
+          "icon": "$(library)"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "localMedia.library",
+        "contents": "No music library configured.\n[Set Library Folder](command:local-media.setLibraryFolder)\n[Scan Library](command:local-media.scanLibrary)"
+      },
+      {
+        "view": "localMedia.playlists",
+        "contents": "No playlists yet.\n[Create Playlist](command:local-media.createPlaylist)"
+      },
+      {
+        "view": "localMedia.queue",
+        "contents": "Queue is empty.\nPlay a track to start."
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "local-media.connect",
+          "when": "true"
+        },
+        {
+          "command": "local-media.disconnect",
+          "when": "true"
+        },
+        {
+          "command": "local-media.play",
+          "when": "true"
+        },
+        {
+          "command": "local-media.pause",
+          "when": "true"
+        },
+        {
+          "command": "local-media.playPause",
+          "when": "true"
+        },
+        {
+          "command": "local-media.stop",
+          "when": "true"
+        },
+        {
+          "command": "local-media.next",
+          "when": "true"
+        },
+        {
+          "command": "local-media.previous",
+          "when": "true"
+        },
+        {
+          "command": "local-media.playFile",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "local-media.scanLibrary",
+          "when": "view == localMedia.library",
+          "group": "navigation"
+        },
+        {
+          "command": "local-media.refreshLibrary",
+          "when": "view == localMedia.library",
+          "group": "navigation"
+        },
+        {
+          "command": "local-media.createPlaylist",
+          "when": "view == localMedia.playlists",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "local-media.playFile",
+          "when": "viewItem == track || viewItem == playlistTrack",
+          "group": "1_play"
+        },
+        {
+          "command": "local-media.queueTrack",
+          "when": "viewItem == track || viewItem == playlistTrack",
+          "group": "1_play"
+        },
+        {
+          "command": "local-media.playAlbum",
+          "when": "viewItem == album",
+          "group": "1_play"
+        },
+        {
+          "command": "local-media.addToPlaylist",
+          "when": "viewItem == track || viewItem == album",
+          "group": "2_playlist"
+        },
+        {
+          "command": "local-media.renamePlaylist",
+          "when": "viewItem == playlist",
+          "group": "3_manage"
+        },
+        {
+          "command": "local-media.deletePlaylist",
+          "when": "viewItem == playlist",
+          "group": "3_manage"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test",
+    "test:unit": "mocha --require ts-node/register 'src/test/suite/**/*.test.ts'",
+    "build:daemon": "cd src-go && make build-all"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/sql.js": "^1.4.9",
+    "@types/vscode": "^1.108.1",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.2",
+    "glob": "^13.0.0",
+    "mocha": "^10.2.0",
+    "ts-loader": "^9.5.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.52.0",
+    "webpack": "^5.104.1",
+    "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "music-metadata": "^11.11.1",
+    "sql.js": "^1.13.0"
+  }
+}
