@@ -10,9 +10,9 @@ package media
 #import <MediaPlayer/MediaPlayer.h>
 #import <AppKit/AppKit.h>
 
-void updateNowPlayingInfo(const char* title, const char* artist, const char* album, double duration, const char* artPath);
-void updatePlaybackState(int state, double position);
-void setupRemoteCommandCenter(void);
+static void updateNowPlayingInfo(const char* title, const char* artist, const char* album, double duration, const char* artPath);
+static void updatePlaybackState(int state, double position);
+static void setupRemoteCommandCenter(void);
 
 // Forward declarations for Go callbacks
 extern void goMediaCommandPlay();
@@ -120,15 +120,15 @@ static inline void setupRemoteCommandCenterImpl() {
     }
 }
 
-void updateNowPlayingInfo(const char* title, const char* artist, const char* album, double duration, const char* artPath) {
+static void updateNowPlayingInfo(const char* title, const char* artist, const char* album, double duration, const char* artPath) {
     updateNowPlayingInfoImpl(title, artist, album, duration, artPath);
 }
 
-void updatePlaybackState(int state, double position) {
+static void updatePlaybackState(int state, double position) {
     updatePlaybackStateImpl(state, position);
 }
 
-void setupRemoteCommandCenter() {
+static void setupRemoteCommandCenter() {
     setupRemoteCommandCenterImpl();
 }
 */

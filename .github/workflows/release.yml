@@ -71,15 +71,36 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Install Linux dependencies
+      - name: Install Linux dependencies (amd64)
+        if: matrix.arch == 'amd64'
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libdbus-1-dev
 
-      - name: Install cross-compilation tools (arm64)
+      - name: Install cross-compilation tools and libraries (arm64)
         if: matrix.arch == 'arm64'
         run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+          # Add ARM64 architecture for cross-compilation libraries
+          sudo dpkg --add-architecture arm64
+          
+          # Update sources to include ARM64 packages
+          # Ubuntu runners use azure mirrors, need to add ports for arm64
+          sudo tee /etc/apt/sources.list.d/arm64.list << 'EOF'
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ jammy-security main restricted universe multiverse
+          EOF
+          
+          # Pin amd64 to default sources
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
+            libasound2-dev:arm64 \
+            libdbus-1-dev:arm64 \
+            pkg-config
 
       - name: Get version
         id: version
@@ -106,6 +127,8 @@ jobs:
           CGO_ENABLED: 1
           GOOS: linux
           GOARCH: arm64
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+          PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
         run: |
           go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" \
             -o ../bin/musicd-linux-arm64 ./cmd/musicd
