@@ -7,18 +7,18 @@ import { LibrarySearch } from '../../library/search';
 import { MetadataCache } from '../../metadata/cache';
 import { createTempDbPath, cleanupTestDb } from '../mocks/database';
 
-// Mocha globals are provided by the VS Code test runner
-declare const describe: Mocha.SuiteFunction;
-declare const it: Mocha.TestFunction;
-declare const beforeEach: Mocha.HookFunction;
-declare const afterEach: Mocha.HookFunction;
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
+declare const setup: Mocha.HookFunction;
+declare const teardown: Mocha.HookFunction;
 
-describe('LibrarySearch', () => {
+suite('LibrarySearch', () => {
   let search: LibrarySearch;
   let cache: MetadataCache;
   let dbPath: string;
 
-  beforeEach(async () => {
+  setup(async () => {
     dbPath = createTempDbPath();
     cache = new MetadataCache(dbPath);
     await cache.initialize();
@@ -45,36 +45,36 @@ describe('LibrarySearch', () => {
     });
   });
 
-  afterEach(() => {
+  teardown(() => {
     cache.close();
     cleanupTestDb(dbPath);
   });
 
-  describe('searchTracks', () => {
-    it('should find tracks by title', async () => {
+  suite('searchTracks', () => {
+    test('should find tracks by title', async () => {
       const results = await search.searchTracks('Creep');
       assert.strictEqual(results.length, 1);
       assert.strictEqual(results[0].title, 'Creep');
     });
 
-    it('should find tracks by artist', async () => {
+    test('should find tracks by artist', async () => {
       const results = await search.searchTracks('Radiohead');
       assert.strictEqual(results.length, 2);
     });
 
-    it('should find tracks by album', async () => {
+    test('should find tracks by album', async () => {
       const results = await search.searchTracks('Pablo');
       assert.strictEqual(results.length, 1);
     });
 
-    it('should return empty for no matches', async () => {
+    test('should return empty for no matches', async () => {
       const results = await search.searchTracks('Nonexistent');
       assert.strictEqual(results.length, 0);
     });
   });
 
-  describe('searchAll', () => {
-    it('should search across tracks, albums, and artists', async () => {
+  suite('searchAll', () => {
+    test('should search across tracks, albums, and artists', async () => {
       const results = await search.searchAll('Radiohead');
 
       // Should find:
@@ -87,14 +87,14 @@ describe('LibrarySearch', () => {
       assert.strictEqual(artistResults.length, 1);
     });
 
-    it('should find albums by name', async () => {
+    test('should find albums by name', async () => {
       const results = await search.searchAll('Computer');
 
       const albumResults = results.filter((r) => r.type === 'album');
       assert.ok(albumResults.length >= 1);
     });
 
-    it('should include description and detail in results', async () => {
+    test('should include description and detail in results', async () => {
       const results = await search.searchAll('Creep');
 
       const trackResult = results.find((r) => r.type === 'track');

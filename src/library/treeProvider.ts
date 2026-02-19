@@ -243,103 +243,156 @@ export class LibraryTreeProvider implements vscode.TreeDataProvider<LibraryItem>
   private getArtistItems(): LibraryItem[] {
     if (!this.cache) return [];
 
-    const artists = this.cache.getArtists();
+    const nfoArtists = this.cache.getArtists();
+    const tracks = this.cache.getTracks();
+    const albums = this.cache.getAlbums();
 
-    if (artists.length === 0) {
-      // Fallback: derive artists from album metadata or file paths
-      const albums = this.cache.getAlbums();
-      const tracks = this.cache.getTracks();
-      const artistSet = new Set<string>();
-      
-      for (const album of albums) {
-        if (album.artist) {
-          artistSet.add(album.artist);
-        }
-      }
+    // Build a map of artist name -> NFO data (if available)
+    // Use lowercase keys for case-insensitive deduplication
+    const artistMap = new Map<string, ArtistNFO | null>();
 
-      // If no albums, derive from file paths
-      if (artistSet.size === 0) {
-        for (const track of tracks) {
-          const parts = track.path.split(path.sep);
-          // Assume structure: .../Artist/Album/Track.mp3
-          if (parts.length >= 3) {
-            artistSet.add(parts[parts.length - 3]);
-          }
-        }
-      }
-
-      return Array.from(artistSet)
-        .sort()
-        .map(name => new LibraryItem(
-          name,
-          'artist',
-          vscode.TreeItemCollapsibleState.Collapsed,
-          name // Store artist name as data
-        ));
+    // Add NFO artists (they have rich metadata)
+    for (const artist of nfoArtists) {
+      artistMap.set(artist.name.toLowerCase(), artist);
     }
 
-    return artists
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map(artist => {
-        const item = new LibraryItem(
-          artist.name,
-          'artist',
-          vscode.TreeItemCollapsibleState.Collapsed,
-          artist
-        );
-        if (artist.rating) {
-          item.description = `⭐ ${artist.rating}`;
+    // Add artists from track metadata (embedded in audio files)
+    for (const track of tracks) {
+      if (track.metadata?.artist) {
+        const key = track.metadata.artist.toLowerCase();
+        if (!artistMap.has(key)) {
+          // No NFO for this artist, store with original casing
+          artistMap.set(key, null);
         }
-        return item;
-      });
+      }
+    }
+
+    // Add artists from album metadata
+    for (const album of albums) {
+      if (album.artist) {
+        const key = album.artist.toLowerCase();
+        if (!artistMap.has(key)) {
+          artistMap.set(key, null);
+        }
+      }
+    }
+
+    // If still no artists, derive from file paths
+    if (artistMap.size === 0) {
+      for (const track of tracks) {
+        const parts = track.path.split(path.sep);
+        // Assume structure: .../Artist/Album/Track.mp3
+        if (parts.length >= 3) {
+          const artistName = parts[parts.length - 3];
+          artistMap.set(artistName.toLowerCase(), null);
+        }
+      }
+    }
+
+    // Build LibraryItem array
+    const items: LibraryItem[] = [];
+    
+    // Get display names (preserve original casing from first source that had it)
+    const displayNames = new Map<string, string>();
+    for (const artist of nfoArtists) {
+      displayNames.set(artist.name.toLowerCase(), artist.name);
+    }
+    for (const track of tracks) {
+      if (track.metadata?.artist) {
+        const key = track.metadata.artist.toLowerCase();
+        if (!displayNames.has(key)) {
+          displayNames.set(key, track.metadata.artist);
+        }
+      }
+    }
+    for (const album of albums) {
+      if (album.artist) {
+        const key = album.artist.toLowerCase();
+        if (!displayNames.has(key)) {
+          displayNames.set(key, album.artist);
+        }
+      }
+    }
+    // Fallback display names from path-derived artists
+    for (const track of tracks) {
+      const parts = track.path.split(path.sep);
+      if (parts.length >= 3) {
+        const artistName = parts[parts.length - 3];
+        const key = artistName.toLowerCase();
+        if (!displayNames.has(key)) {
+          displayNames.set(key, artistName);
+        }
+      }
+    }
+
+    for (const [key, nfoData] of artistMap) {
+      const displayName = displayNames.get(key) || key;
+      const item = new LibraryItem(
+        displayName,
+        'artist',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        nfoData || displayName // Store NFO data if available, else artist name
+      );
+      if (nfoData?.rating) {
+        item.description = `⭐ ${nfoData.rating}`;
+      }
+      items.push(item);
+    }
+
+    return items.sort((a, b) => a.label.toString().localeCompare(b.label.toString()));
   }
 
   private getAlbumItems(): LibraryItem[] {
     if (!this.cache) return [];
 
-    const albums = this.cache.getAlbums();
+    const nfoAlbums = this.cache.getAlbums();
+    const tracks = this.cache.getTracks();
 
-    if (albums.length === 0) {
-      // Derive from file paths
-      const tracks = this.cache.getTracks();
-      const albumSet = new Map<string, { name: string; path: string }>();
-      
-      for (const track of tracks) {
-        const dir = path.dirname(track.path);
-        const albumName = path.basename(dir);
-        if (!albumSet.has(dir)) {
-          albumSet.set(dir, { name: albumName, path: dir });
-        }
+    // Build a map of album path -> NFO data (if available) or track-derived info
+    // Key by directory path for deduplication
+    const albumMap = new Map<string, { nfo: AlbumNFO | null; name: string; path: string }>();
+
+    // Add NFO albums (they have rich metadata like year, genres)
+    // Use albumPath (the directory) for deduplication, not path (the NFO file)
+    for (const album of nfoAlbums) {
+      const albumDir = album.albumPath || (album.path ? path.dirname(album.path) : null);
+      if (albumDir) {
+        albumMap.set(albumDir, { nfo: album, name: album.title, path: albumDir });
       }
-
-      return Array.from(albumSet.values())
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map(album => {
-          const item = new LibraryItem(
-            album.name,
-            'album',
-            vscode.TreeItemCollapsibleState.Collapsed,
-            album.path
-          );
-          return item;
-        });
     }
 
-    return albums
-      .sort((a, b) => a.title.localeCompare(b.title))
-      .map(album => {
-        const item = new LibraryItem(
-          album.title,
-          'album',
-          vscode.TreeItemCollapsibleState.Collapsed,
-          album
-        );
+    // Add albums from track metadata (embedded in audio files)
+    for (const track of tracks) {
+      const dir = path.dirname(track.path);
+      if (!albumMap.has(dir)) {
+        // Use album name from track metadata if available, else folder name
+        const albumName = track.metadata?.album || path.basename(dir);
+        albumMap.set(dir, { nfo: null, name: albumName, path: dir });
+      }
+    }
+
+    // Build LibraryItem array
+    const items: LibraryItem[] = [];
+    
+    for (const [, albumData] of albumMap) {
+      const item = new LibraryItem(
+        albumData.name,
+        'album',
+        vscode.TreeItemCollapsibleState.Collapsed,
+        albumData.nfo || albumData.path // Store NFO data if available, else path
+      );
+      
+      if (albumData.nfo) {
         const parts = [];
-        if (album.artist) parts.push(album.artist);
-        if (album.year) parts.push(`(${album.year})`);
+        if (albumData.nfo.artist) parts.push(albumData.nfo.artist);
+        if (albumData.nfo.year) parts.push(`(${albumData.nfo.year})`);
         item.description = parts.join(' ');
-        return item;
-      });
+      }
+      
+      items.push(item);
+    }
+
+    return items.sort((a, b) => a.label.toString().localeCompare(b.label.toString()));
   }
 
   private getTrackItems(): LibraryItem[] {
@@ -545,13 +598,23 @@ export class PlaylistTreeProvider implements vscode.TreeDataProvider<LibraryItem
       
       return Promise.resolve(
         playlist.tracks.map((trackPath, index) => {
-          const fileName = path.basename(trackPath, path.extname(trackPath));
+          // Look up metadata from library cache
+          const trackInfo = this.cache?.getTrackByPath(trackPath);
+          const title = trackInfo?.metadata?.title || path.basename(trackPath, path.extname(trackPath));
+          const artist = trackInfo?.metadata?.artist;
+          
           const item = new LibraryItem(
-            `${index + 1}. ${fileName}`,
+            `${index + 1}. ${title}`,
             'playlistTrack',
             vscode.TreeItemCollapsibleState.None,
             trackPath
           );
+          
+          // Show artist as description if available
+          if (artist) {
+            item.description = artist;
+          }
+          
           // Play entire playlist starting from this track
           item.command = {
             command: 'local-media.playPlaylistFromIndex',

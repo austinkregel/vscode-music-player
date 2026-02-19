@@ -6,9 +6,9 @@ import * as assert from 'assert';
 import { NowPlayingStatusBar } from '../../ui/statusBar';
 import type { StatusResponse } from '../../types';
 
-// Mocha globals are provided by the VS Code test runner
-declare const describe: Mocha.SuiteFunction;
-declare const it: Mocha.TestFunction;
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
 
 // Mock vscode module for unit testing
 const mockStatusBarItem = {
@@ -23,10 +23,10 @@ const mockStatusBarItem = {
 // We need to mock vscode.window.createStatusBarItem
 // For now, we'll test the logic without the actual VS Code API
 
-describe('NowPlayingStatusBar', () => {
-  describe('formatTime', () => {
+suite('NowPlayingStatusBar', () => {
+  suite('formatTime', () => {
     // Test the time formatting logic
-    it('should format milliseconds to mm:ss', () => {
+    test('should format milliseconds to mm:ss', () => {
       // 0 ms = 0:00
       assert.strictEqual(formatTime(0), '0:00');
       
@@ -44,20 +44,20 @@ describe('NowPlayingStatusBar', () => {
     });
   });
 
-  describe('truncate', () => {
-    it('should not truncate short text', () => {
+  suite('truncate', () => {
+    test('should not truncate short text', () => {
       const result = truncate('Hello', 10);
       assert.strictEqual(result, 'Hello');
     });
 
-    it('should truncate long text with ellipsis', () => {
+    test('should truncate long text with ellipsis', () => {
       const result = truncate('Hello World', 8);
       assert.strictEqual(result, 'Hello W…');
     });
   });
 
-  describe('formatText', () => {
-    it('should format track with artist and title', () => {
+  suite('formatText', () => {
+    test('should format track with artist and title', () => {
       const status: StatusResponse = {
         state: 'playing',
         position: 0,
@@ -76,7 +76,7 @@ describe('NowPlayingStatusBar', () => {
       assert.ok(text.includes('Test Song'));
     });
 
-    it('should use filename if no metadata', () => {
+    test('should use filename if no metadata', () => {
       const status: StatusResponse = {
         state: 'playing',
         path: '/music/my-song.mp3',

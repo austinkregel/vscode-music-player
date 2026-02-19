@@ -28,9 +28,11 @@ type OtoOutput struct {
 	sampleRate int
 	channels   int
 	mu         sync.Mutex
+	cond       *sync.Cond // Condition variable for pause/resume synchronization
 	buffer     *bytes.Buffer
 	volume     float64 // 0.0 - 1.0
 	paused     bool    // True when explicitly paused - prevents auto-resume on Write
+	closed     bool    // True when output is closed - unblocks waiting goroutines
 	analyzer   *AudioAnalyzer // Real-time FFT analyzer for visualization
 }
 
@@ -61,6 +63,7 @@ func NewOtoOutputWithConfig(sampleRate, channels int) (*OtoOutput, error) {
 		volume:     1.0,
 		analyzer:   NewAudioAnalyzer(sampleRate, channels),
 	}
+	output.cond = sync.NewCond(&output.mu)
 
 	// Create player with the buffer as source
 	output.player = ctx.NewPlayer(output)
@@ -73,8 +76,18 @@ func (o *OtoOutput) Read(p []byte) (n int, err error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
+	// Block while paused and not closed, waiting for Resume() or Close()
+	for o.paused && !o.closed {
+		o.cond.Wait()
+	}
+
+	// If closed, signal EOF to stop the player cleanly
+	if o.closed {
+		return 0, io.EOF
+	}
+
+	// If buffer is empty but not paused, return silence to keep stream alive
 	if o.buffer.Len() == 0 {
-		// Return empty data to keep player alive but silent
 		for i := range p {
 			p[i] = 0
 		}
@@ -186,6 +199,7 @@ func (o *OtoOutput) Resume() {
 	defer o.mu.Unlock()
 
 	o.paused = false // Clear flag to allow playback
+	o.cond.Broadcast() // Wake up any blocked Read() goroutines
 	if o.player != nil && !o.player.IsPlaying() {
 		o.player.Play()
 	}
@@ -216,6 +230,9 @@ func (o *OtoOutput) IsPlaying() bool {
 func (o *OtoOutput) Close() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
+
+	o.closed = true
+	o.cond.Broadcast() // Wake up any blocked Read() goroutines so they can exit
 
 	if o.player != nil {
 		if err := o.player.Close(); err != nil {

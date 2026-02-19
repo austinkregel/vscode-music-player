@@ -24,7 +24,21 @@ export type CommandType =
   | 'getScanStatus'
   | 'getAudioData'
   | 'subscribeAudioData'
-  | 'unsubscribeAudioData';
+  | 'unsubscribeAudioData'
+  // Analysis commands
+  | 'getAnalysisStatus'
+  | 'startAnalysis'
+  | 'pauseAnalysis'
+  | 'resumeAnalysis'
+  | 'rebuildGraph'
+  // Similarity commands
+  | 'getSimilarTracks'
+  | 'getCommunities'
+  | 'getCommunityTracks'
+  | 'getBridgeTracks'
+  | 'explainSimilarity'
+  | 'setContinueMode'
+  | 'getContinueMode';
 
 export interface Request {
   cmd: CommandType;
@@ -281,4 +295,87 @@ export interface AlbumNFO {
   label?: string;
   path: string;
   albumPath: string;
+}
+
+// ============================================================================
+// Audio Analysis Types
+// ============================================================================
+
+export type ContinueMode = 'off' | 'similar' | 'random';
+
+export interface AnalysisStatusResponse {
+  status: 'idle' | 'running' | 'paused' | 'complete';
+  totalTracks: number;
+  analyzed: number;
+  inProgress: number;
+  failed: number;
+  communities: number;
+  message?: string;
+}
+
+export interface SimilarTrackInfo {
+  path: string;
+  similarity: number;
+}
+
+export interface GetSimilarTracksRequest {
+  trackPath: string;
+  limit?: number;
+}
+
+export interface GetSimilarTracksResponse {
+  tracks: SimilarTrackInfo[];
+}
+
+export interface CommunityInfo {
+  id: number;
+  name: string;
+  trackCount: number;
+  topFeatures: string[];
+}
+
+export interface GetCommunitiesResponse {
+  communities: CommunityInfo[];
+}
+
+export interface GetCommunityTracksRequest {
+  communityId: number;
+  limit?: number;
+}
+
+export interface GetCommunityTracksResponse {
+  tracks: string[];
+}
+
+export interface GetBridgeTracksRequest {
+  minScore?: number;
+  limit?: number;
+}
+
+export interface GetBridgeTracksResponse {
+  tracks: string[];
+}
+
+export interface ExplainSimilarityRequest {
+  trackA: string;
+  trackB: string;
+}
+
+export interface ExplainSimilarityResponse {
+  overall: number;
+  mfcc: number;
+  tempo: number;
+  spectral: number;
+  energy: number;
+  bands: number;
+  instruments: number;
+  context: number;
+}
+
+export interface SetContinueModeRequest {
+  mode: ContinueMode;
+}
+
+export interface GetContinueModeResponse {
+  mode: ContinueMode;
 }

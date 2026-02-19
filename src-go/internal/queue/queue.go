@@ -25,6 +25,9 @@ type QueueItem struct {
 // ChangeCallback is called when the queue state changes
 type ChangeCallback func()
 
+// SimilarityProvider is called to get similar tracks when continue mode is enabled
+type SimilarityProvider func(trackPath string, exclude []string) string
+
 // Manager manages the playback queue
 type Manager struct {
 	mu           sync.RWMutex
@@ -35,6 +38,12 @@ type Manager struct {
 	repeat       RepeatMode
 	rng          *rand.Rand
 	onChange     ChangeCallback // Called when queue state changes
+
+	// Continue mode settings
+	continueMode       ContinueMode
+	recentlyPlayed     []string // Track paths recently played (for exclusion)
+	maxRecentlyPlayed  int      // Max items to keep in recentlyPlayed
+	similarityProvider SimilarityProvider
 }
 
 // RepeatMode represents the repeat behavior
@@ -46,14 +55,26 @@ const (
 	RepeatAll
 )
 
+// ContinueMode represents what happens when the queue is exhausted
+type ContinueMode int
+
+const (
+	ContinueOff     ContinueMode = iota
+	ContinueSimilar              // Play similar to last track
+	ContinueRandom               // Play random track from library
+)
+
 // NewManager creates a new queue manager
 func NewManager() *Manager {
 	return &Manager{
-		items:        make([]QueueItem, 0),
-		index:        -1,
-		repeat:       RepeatOff,
-		shuffleOrder: make([]int, 0),
-		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
+		items:             make([]QueueItem, 0),
+		index:             -1,
+		repeat:            RepeatOff,
+		shuffleOrder:      make([]int, 0),
+		rng:               rand.New(rand.NewSource(time.Now().UnixNano())),
+		continueMode:      ContinueOff,
+		recentlyPlayed:    make([]string, 0),
+		maxRecentlyPlayed: 50,
 	}
 }
 
@@ -541,4 +562,97 @@ func (m *Manager) Move(fromIndex, toIndex int) bool {
 	m.mu.Unlock()
 	m.notifyChange()
 	return true
+}
+
+// SetContinueMode sets the queue continuation mode
+func (m *Manager) SetContinueMode(mode ContinueMode) {
+	m.mu.Lock()
+	m.continueMode = mode
+	m.mu.Unlock()
+	m.notifyChange()
+}
+
+// GetContinueMode returns the current continue mode
+func (m *Manager) GetContinueMode() ContinueMode {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.continueMode
+}
+
+// SetSimilarityProvider sets the function used to find similar tracks
+func (m *Manager) SetSimilarityProvider(provider SimilarityProvider) {
+	m.mu.Lock()
+	m.similarityProvider = provider
+	m.mu.Unlock()
+}
+
+// AddToRecentlyPlayed adds a track to the recently played list
+func (m *Manager) AddToRecentlyPlayed(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if already in list
+	for _, p := range m.recentlyPlayed {
+		if p == path {
+			return
+		}
+	}
+
+	m.recentlyPlayed = append(m.recentlyPlayed, path)
+
+	// Trim to max size
+	if len(m.recentlyPlayed) > m.maxRecentlyPlayed {
+		m.recentlyPlayed = m.recentlyPlayed[len(m.recentlyPlayed)-m.maxRecentlyPlayed:]
+	}
+}
+
+// GetRecentlyPlayed returns the list of recently played tracks
+func (m *Manager) GetRecentlyPlayed() []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]string, len(m.recentlyPlayed))
+	copy(result, m.recentlyPlayed)
+	return result
+}
+
+// ClearRecentlyPlayed clears the recently played list
+func (m *Manager) ClearRecentlyPlayed() {
+	m.mu.Lock()
+	m.recentlyPlayed = make([]string, 0)
+	m.mu.Unlock()
+}
+
+// SetMaxRecentlyPlayed sets the maximum number of tracks to keep in the history
+func (m *Manager) SetMaxRecentlyPlayed(max int) {
+	m.mu.Lock()
+	m.maxRecentlyPlayed = max
+	if len(m.recentlyPlayed) > max {
+		m.recentlyPlayed = m.recentlyPlayed[len(m.recentlyPlayed)-max:]
+	}
+	m.mu.Unlock()
+}
+
+// TryGetSimilarTrack attempts to get a similar track when the queue is exhausted
+// Returns empty string if no similar track found or continue mode is off
+func (m *Manager) TryGetSimilarTrack() string {
+	m.mu.RLock()
+	mode := m.continueMode
+	provider := m.similarityProvider
+	var lastTrack string
+	if m.index >= 0 && len(m.items) > 0 {
+		itemIdx := m.getItemIndex(m.index)
+		if itemIdx >= 0 && itemIdx < len(m.items) {
+			lastTrack = m.items[itemIdx].Path
+		}
+	}
+	exclude := make([]string, len(m.recentlyPlayed))
+	copy(exclude, m.recentlyPlayed)
+	m.mu.RUnlock()
+
+	if mode != ContinueSimilar || provider == nil || lastTrack == "" {
+		return ""
+	}
+
+	return provider(lastTrack, exclude)
 }

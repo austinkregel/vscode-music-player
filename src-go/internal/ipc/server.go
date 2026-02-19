@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/austinkregel/local-media/musicd/internal/analysis"
 	"github.com/austinkregel/local-media/musicd/internal/audio"
 	"github.com/austinkregel/local-media/musicd/internal/auth"
 	"github.com/austinkregel/local-media/musicd/internal/config"
@@ -38,6 +39,12 @@ type Server struct {
 	// Audio data streaming (callback-based, no polling)
 	audioSubsMu sync.RWMutex
 	audioSubs   map[net.Conn]bool // Clients subscribed to audio data
+
+	// Audio analysis
+	analysisWorker   *analysis.Worker
+	featureStore     *analysis.FeatureStore
+	similarityEngine *analysis.SimilarityEngine
+	communityDetector *analysis.CommunityDetector
 }
 
 // NewServer creates a new IPC server
@@ -49,16 +56,40 @@ func NewServer(
 	queueMgr *queue.Manager,
 	mediaSession media.Session,
 ) (*Server, error) {
+	// Initialize feature store
+	cfg := configMgr.Get()
+	dataDir := cfg.DataDir
+	if dataDir == "" {
+		homeDir, _ := os.UserHomeDir()
+		dataDir = homeDir + "/.local-media"
+	}
+
+	featureStore, err := analysis.NewFeatureStore(dataDir)
+	if err != nil {
+		log.Printf("[ANALYSIS] Warning: Could not initialize feature store: %v", err)
+		featureStore = nil
+	}
+
+	var similarityEngine *analysis.SimilarityEngine
+	var communityDetector *analysis.CommunityDetector
+	if featureStore != nil {
+		similarityEngine = analysis.NewSimilarityEngine(featureStore)
+		communityDetector = analysis.NewCommunityDetector(featureStore, similarityEngine)
+	}
+
 	s := &Server{
-		socketPath:   socketPath,
-		authManager:  authManager,
-		configMgr:    configMgr,
-		player:       player,
-		queueMgr:     queueMgr,
-		mediaSession: mediaSession,
-		libScanner:   scanner.NewScanner(),
-		clients:      make(map[net.Conn]struct{}),
-		audioSubs:    make(map[net.Conn]bool),
+		socketPath:        socketPath,
+		authManager:       authManager,
+		configMgr:         configMgr,
+		player:            player,
+		queueMgr:          queueMgr,
+		mediaSession:      mediaSession,
+		libScanner:        scanner.NewScanner(),
+		clients:           make(map[net.Conn]struct{}),
+		audioSubs:         make(map[net.Conn]bool),
+		featureStore:      featureStore,
+		similarityEngine:  similarityEngine,
+		communityDetector: communityDetector,
 	}
 	
 	// Register callback for real-time audio data push (no polling!)
@@ -356,6 +387,32 @@ func (s *Server) handleRequest(ctx context.Context, conn net.Conn, req *Request)
 		return s.handleSubscribeAudioData(conn)
 	case CmdUnsubscribeAudioData:
 		return s.handleUnsubscribeAudioData(conn)
+	// Analysis commands
+	case CmdGetAnalysisStatus:
+		return s.handleGetAnalysisStatus()
+	case CmdStartAnalysis:
+		return s.handleStartAnalysis()
+	case CmdPauseAnalysis:
+		return s.handlePauseAnalysis()
+	case CmdResumeAnalysis:
+		return s.handleResumeAnalysis()
+	case CmdRebuildGraph:
+		return s.handleRebuildGraph()
+	// Similarity commands
+	case CmdGetSimilarTracks:
+		return s.handleGetSimilarTracks(req)
+	case CmdGetCommunities:
+		return s.handleGetCommunities()
+	case CmdGetCommunityTracks:
+		return s.handleGetCommunityTracks(req)
+	case CmdGetBridgeTracks:
+		return s.handleGetBridgeTracks(req)
+	case CmdExplainSimilarity:
+		return s.handleExplainSimilarity(req)
+	case CmdSetContinueMode:
+		return s.handleSetContinueMode(req)
+	case CmdGetContinueMode:
+		return s.handleGetContinueMode()
 	default:
 		return NewErrorResponse("unknown command")
 	}
@@ -1135,4 +1192,320 @@ func (s *Server) pushAudioDataImmediate(bandsU8 []uint8) {
 			s.audioSubsMu.Unlock()
 		}
 	}
+}
+
+// Analysis and similarity handlers
+
+func (s *Server) handleGetAnalysisStatus() *Response {
+	status := AnalysisStatusResponse{
+		Status:      "idle",
+		TotalTracks: 0,
+		Analyzed:    0,
+		Communities: 0,
+	}
+
+	if s.analysisWorker != nil {
+		workerStatus := s.analysisWorker.GetStatus()
+		status.Status = workerStatus.Status
+		status.TotalTracks = workerStatus.TotalTracks
+		status.Analyzed = workerStatus.Analyzed
+		status.InProgress = workerStatus.InProgress
+		status.Failed = workerStatus.Failed
+		status.Message = workerStatus.Message
+	}
+
+	if s.featureStore != nil {
+		status.Analyzed = s.featureStore.GetAnalyzedCount()
+		communities := s.featureStore.GetCommunities()
+		status.Communities = len(communities)
+	}
+
+	resp, err := NewSuccessResponse(status)
+	if err != nil {
+		return NewErrorResponse("internal error")
+	}
+	return resp
+}
+
+func (s *Server) handleStartAnalysis() *Response {
+	if s.featureStore == nil {
+		return NewErrorResponse("analysis not available")
+	}
+
+	// Check if already running
+	if s.analysisWorker != nil && s.analysisWorker.IsRunning() {
+		return NewErrorResponse("analysis already running")
+	}
+
+	// Create worker if needed
+	if s.analysisWorker == nil {
+		worker, err := analysis.NewWorker(analysis.WorkerConfig{
+			IsPlayingFunc: func() bool {
+				status := s.player.Status()
+				return status.State == "playing"
+			},
+			OnResult: func(result analysis.AnalysisResult) {
+				if result.Error == nil && result.Features != nil {
+					s.featureStore.StoreFeatures(result.TrackPath, result.Features, analysis.FeatureVersion, result.FileHash)
+				}
+			},
+		})
+		if err != nil {
+			return NewErrorResponse(fmt.Sprintf("failed to create worker: %v", err))
+		}
+		s.analysisWorker = worker
+	}
+
+	// Get all tracks to analyze from last scan
+	results, _ := s.libScanner.GetLastResults()
+	var tracks []analysis.TrackInfo
+	for _, sr := range results {
+		for _, f := range sr.Files {
+			if !s.featureStore.HasFeatures(f.Path, analysis.FeatureVersion) {
+				tracks = append(tracks, analysis.TrackInfo{Path: f.Path})
+			}
+		}
+	}
+
+	if len(tracks) == 0 {
+		return NewErrorResponse("no tracks to analyze")
+	}
+
+	// Start analysis
+	ctx := context.Background()
+	if err := s.analysisWorker.Start(ctx, tracks); err != nil {
+		return NewErrorResponse(err.Error())
+	}
+
+	log.Printf("[ANALYSIS] Started analysis of %d tracks", len(tracks))
+	return s.handleGetAnalysisStatus()
+}
+
+func (s *Server) handlePauseAnalysis() *Response {
+	if s.analysisWorker == nil {
+		return NewErrorResponse("no analysis running")
+	}
+	s.analysisWorker.Pause()
+	log.Printf("[ANALYSIS] Analysis paused")
+	return s.handleGetAnalysisStatus()
+}
+
+func (s *Server) handleResumeAnalysis() *Response {
+	if s.analysisWorker == nil {
+		return NewErrorResponse("no analysis running")
+	}
+	s.analysisWorker.Resume()
+	log.Printf("[ANALYSIS] Analysis resumed")
+	return s.handleGetAnalysisStatus()
+}
+
+func (s *Server) handleRebuildGraph() *Response {
+	if s.similarityEngine == nil || s.communityDetector == nil {
+		return NewErrorResponse("analysis not available")
+	}
+
+	log.Printf("[ANALYSIS] Rebuilding similarity graph...")
+	s.similarityEngine.BuildGraph()
+
+	log.Printf("[ANALYSIS] Detecting communities...")
+	communities := s.communityDetector.DetectCommunities()
+
+	log.Printf("[ANALYSIS] Graph rebuilt: %d communities detected", len(communities))
+
+	if err := s.featureStore.Save(); err != nil {
+		log.Printf("[ANALYSIS] Warning: Failed to save feature store: %v", err)
+	}
+
+	return s.handleGetAnalysisStatus()
+}
+
+func (s *Server) handleGetSimilarTracks(req *Request) *Response {
+	if s.similarityEngine == nil {
+		return NewErrorResponse("analysis not available")
+	}
+
+	var simReq GetSimilarTracksRequest
+	if err := json.Unmarshal(req.Data, &simReq); err != nil {
+		return NewErrorResponse("invalid request")
+	}
+
+	limit := simReq.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	edges := s.similarityEngine.FindSimilar(simReq.TrackPath, limit, nil)
+
+	tracks := make([]SimilarTrackInfo, len(edges))
+	for i, e := range edges {
+		tracks[i] = SimilarTrackInfo{
+			Path:       e.TargetPath,
+			Similarity: e.Weight,
+		}
+	}
+
+	resp, err := NewSuccessResponse(GetSimilarTracksResponse{Tracks: tracks})
+	if err != nil {
+		return NewErrorResponse("internal error")
+	}
+	return resp
+}
+
+func (s *Server) handleGetCommunities() *Response {
+	if s.featureStore == nil {
+		return NewErrorResponse("analysis not available")
+	}
+
+	communities := s.featureStore.GetCommunities()
+
+	ipcCommunities := make([]CommunityInfo, len(communities))
+	for i, c := range communities {
+		ipcCommunities[i] = CommunityInfo{
+			ID:          c.ID,
+			Name:        c.Name,
+			TrackCount:  c.TrackCount,
+			TopFeatures: c.TopFeatures,
+		}
+	}
+
+	resp, err := NewSuccessResponse(GetCommunitiesResponse{Communities: ipcCommunities})
+	if err != nil {
+		return NewErrorResponse("internal error")
+	}
+	return resp
+}
+
+func (s *Server) handleGetCommunityTracks(req *Request) *Response {
+	if s.featureStore == nil {
+		return NewErrorResponse("analysis not available")
+	}
+
+	var commReq GetCommunityTracksRequest
+	if err := json.Unmarshal(req.Data, &commReq); err != nil {
+		return NewErrorResponse("invalid request")
+	}
+
+	tracks := s.featureStore.GetTracksInCommunity(commReq.CommunityID)
+
+	limit := commReq.Limit
+	if limit > 0 && len(tracks) > limit {
+		tracks = tracks[:limit]
+	}
+
+	resp, err := NewSuccessResponse(GetCommunityTracksResponse{Tracks: tracks})
+	if err != nil {
+		return NewErrorResponse("internal error")
+	}
+	return resp
+}
+
+func (s *Server) handleGetBridgeTracks(req *Request) *Response {
+	if s.featureStore == nil {
+		return NewErrorResponse("analysis not available")
+	}
+
+	var bridgeReq GetBridgeTracksRequest
+	if err := json.Unmarshal(req.Data, &bridgeReq); err != nil {
+		return NewErrorResponse("invalid request")
+	}
+
+	minScore := bridgeReq.MinScore
+	if minScore <= 0 {
+		minScore = 0.5
+	}
+
+	tracks := s.featureStore.GetBridgeTracks(minScore)
+
+	limit := bridgeReq.Limit
+	if limit > 0 && len(tracks) > limit {
+		tracks = tracks[:limit]
+	}
+
+	resp, err := NewSuccessResponse(GetBridgeTracksResponse{Tracks: tracks})
+	if err != nil {
+		return NewErrorResponse("internal error")
+	}
+	return resp
+}
+
+func (s *Server) handleExplainSimilarity(req *Request) *Response {
+	if s.similarityEngine == nil {
+		return NewErrorResponse("analysis not available")
+	}
+
+	var explainReq ExplainSimilarityRequest
+	if err := json.Unmarshal(req.Data, &explainReq); err != nil {
+		return NewErrorResponse("invalid request")
+	}
+
+	breakdown := s.similarityEngine.ExplainSimilarity(explainReq.TrackA, explainReq.TrackB)
+	if breakdown == nil {
+		return NewErrorResponse("tracks not analyzed")
+	}
+
+	resp, err := NewSuccessResponse(ExplainSimilarityResponse{
+		Overall:     breakdown["overall"],
+		MFCC:        breakdown["mfcc"],
+		Tempo:       breakdown["tempo"],
+		Spectral:    breakdown["spectral"],
+		Energy:      breakdown["energy"],
+		Bands:       breakdown["bands"],
+		Instruments: breakdown["instruments"],
+		Context:     breakdown["context"],
+	})
+	if err != nil {
+		return NewErrorResponse("internal error")
+	}
+	return resp
+}
+
+func (s *Server) handleSetContinueMode(req *Request) *Response {
+	var modeReq SetContinueModeRequest
+	if err := json.Unmarshal(req.Data, &modeReq); err != nil {
+		return NewErrorResponse("invalid request")
+	}
+
+	var mode queue.ContinueMode
+	switch modeReq.Mode {
+	case "similar":
+		mode = queue.ContinueSimilar
+	case "random":
+		mode = queue.ContinueRandom
+	default:
+		mode = queue.ContinueOff
+	}
+
+	s.queueMgr.SetContinueMode(mode)
+
+	// Set up similarity provider if enabling similar mode
+	if mode == queue.ContinueSimilar && s.similarityEngine != nil {
+		s.queueMgr.SetSimilarityProvider(func(trackPath string, exclude []string) string {
+			edges := s.similarityEngine.FindSimilar(trackPath, 1, exclude)
+			if len(edges) > 0 {
+				return edges[0].TargetPath
+			}
+			return ""
+		})
+	}
+
+	log.Printf("[QUEUE] Continue mode set to: %s", modeReq.Mode)
+	return s.handleGetContinueMode()
+}
+
+func (s *Server) handleGetContinueMode() *Response {
+	mode := s.queueMgr.GetContinueMode()
+
+	modeStr := "off"
+	switch mode {
+	case queue.ContinueSimilar:
+		modeStr = "similar"
+	case queue.ContinueRandom:
+		modeStr = "random"
+	}
+
+	resp, err := NewSuccessResponse(GetContinueModeResponse{Mode: modeStr})
+	if err != nil {
+		return NewErrorResponse("internal error")
+	}
+	return resp
 }

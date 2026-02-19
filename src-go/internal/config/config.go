@@ -13,6 +13,9 @@ type Config struct {
 	// LibraryPaths is a list of directories containing music files
 	LibraryPaths []string `json:"libraryPaths"`
 
+	// DataDir is where to store data files (analysis, cache, etc.)
+	DataDir string `json:"dataDir"`
+
 	// Audio settings
 	Audio AudioConfig `json:"audio"`
 

@@ -6,29 +6,29 @@ import * as assert from 'assert';
 import { MetadataCache } from '../../metadata/cache';
 import { createTestCache, createTempDbPath, cleanupTestDb } from '../mocks/database';
 
-// Mocha globals are provided by the VS Code test runner
-declare const describe: Mocha.SuiteFunction;
-declare const it: Mocha.TestFunction;
-declare const beforeEach: Mocha.HookFunction;
-declare const afterEach: Mocha.HookFunction;
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
+declare const setup: Mocha.HookFunction;
+declare const teardown: Mocha.HookFunction;
 
-describe('MetadataCache', () => {
+suite('MetadataCache', () => {
   let cache: MetadataCache;
   let dbPath: string;
 
-  beforeEach(async () => {
+  setup(async () => {
     dbPath = createTempDbPath();
     cache = new MetadataCache(dbPath);
     await cache.initialize();
   });
 
-  afterEach(() => {
+  teardown(() => {
     cache.close();
     cleanupTestDb(dbPath);
   });
 
-  describe('tracks', () => {
-    it('should insert and retrieve a track', async () => {
+  suite('tracks', () => {
+    test('should insert and retrieve a track', async () => {
       await cache.upsertTrack({
         path: '/music/track.mp3',
         title: 'Test Song',
@@ -43,7 +43,7 @@ describe('MetadataCache', () => {
       assert.strictEqual(track.album, 'Test Album');
     });
 
-    it('should update existing track on rescan', async () => {
+    test('should update existing track on rescan', async () => {
       await cache.upsertTrack({ path: '/music/track.mp3', title: 'Old Title' });
       await cache.upsertTrack({ path: '/music/track.mp3', title: 'New Title' });
 
@@ -52,7 +52,7 @@ describe('MetadataCache', () => {
       assert.strictEqual(track.title, 'New Title');
     });
 
-    it('should get track by ID', async () => {
+    test('should get track by ID', async () => {
       await cache.upsertTrack({
         path: '/music/unique-track.mp3',
         title: 'Unique Track',
@@ -66,12 +66,12 @@ describe('MetadataCache', () => {
       assert.strictEqual(track.title, 'Unique Track');
     });
 
-    it('should return null for non-existent track', async () => {
+    test('should return null for non-existent track', async () => {
       const track = await cache.getTrackByPath('/nonexistent.mp3');
       assert.strictEqual(track, null);
     });
 
-    it('should delete a track', async () => {
+    test('should delete a track', async () => {
       await cache.upsertTrack({ path: '/music/to-delete.mp3', title: 'Delete Me' });
 
       const allTracks = await cache.getAllTracks();
@@ -83,7 +83,7 @@ describe('MetadataCache', () => {
       assert.strictEqual(count, 0);
     });
 
-    it('should get tracks by album', async () => {
+    test('should get tracks by album', async () => {
       await cache.upsertTrack({ path: '/1.mp3', album: 'Album A', trackNumber: 1 });
       await cache.upsertTrack({ path: '/2.mp3', album: 'Album A', trackNumber: 2 });
       await cache.upsertTrack({ path: '/3.mp3', album: 'Album B', trackNumber: 1 });
@@ -92,7 +92,7 @@ describe('MetadataCache', () => {
       assert.strictEqual(tracks.length, 2);
     });
 
-    it('should get tracks by artist', async () => {
+    test('should get tracks by artist', async () => {
       await cache.upsertTrack({ path: '/1.mp3', artist: 'Artist X' });
       await cache.upsertTrack({ path: '/2.mp3', artist: 'Artist X' });
       await cache.upsertTrack({ path: '/3.mp3', artist: 'Artist Y' });
@@ -102,8 +102,8 @@ describe('MetadataCache', () => {
     });
   });
 
-  describe('search', () => {
-    beforeEach(async () => {
+  suite('search', () => {
+    setup(async () => {
       await cache.upsertTrack({
         path: '/a.mp3',
         title: 'Hello World',
@@ -118,35 +118,35 @@ describe('MetadataCache', () => {
       });
     });
 
-    it('should find tracks by title', async () => {
+    test('should find tracks by title', async () => {
       const results = await cache.search('Hello');
       assert.strictEqual(results.length, 1);
       assert.strictEqual(results[0].title, 'Hello World');
     });
 
-    it('should find tracks by artist', async () => {
+    test('should find tracks by artist', async () => {
       const results = await cache.search('Radiohead');
       assert.strictEqual(results.length, 1);
     });
 
-    it('should find tracks by album', async () => {
+    test('should find tracks by album', async () => {
       const results = await cache.search('Computer');
       assert.strictEqual(results.length, 1);
     });
 
-    it('should be case insensitive', async () => {
+    test('should be case insensitive', async () => {
       const results = await cache.search('hello');
       assert.strictEqual(results.length, 1);
     });
 
-    it('should return empty for no matches', async () => {
+    test('should return empty for no matches', async () => {
       const results = await cache.search('Nonexistent');
       assert.strictEqual(results.length, 0);
     });
   });
 
-  describe('albums', () => {
-    it('should auto-create albums when tracks are added', async () => {
+  suite('albums', () => {
+    test('should auto-create albums when tracks are added', async () => {
       await cache.upsertTrack({
         path: '/music/song.mp3',
         album: 'Great Album',
@@ -160,8 +160,8 @@ describe('MetadataCache', () => {
     });
   });
 
-  describe('artists', () => {
-    it('should auto-create artists when tracks are added', async () => {
+  suite('artists', () => {
+    test('should auto-create artists when tracks are added', async () => {
       await cache.upsertTrack({
         path: '/music/song.mp3',
         artist: 'Awesome Artist',
@@ -173,15 +173,15 @@ describe('MetadataCache', () => {
     });
   });
 
-  describe('playlists', () => {
-    it('should create a playlist', async () => {
+  suite('playlists', () => {
+    test('should create a playlist', async () => {
       const playlist = await cache.createPlaylist({ name: 'My Playlist' });
       assert.ok(playlist.id);
       assert.strictEqual(playlist.name, 'My Playlist');
       assert.ok(playlist.createdAt > 0);
     });
 
-    it('should get all playlists', async () => {
+    test('should get all playlists', async () => {
       await cache.createPlaylist({ name: 'Playlist 1' });
       await cache.createPlaylist({ name: 'Playlist 2' });
 
@@ -189,7 +189,7 @@ describe('MetadataCache', () => {
       assert.strictEqual(playlists.length, 2);
     });
 
-    it('should delete a playlist', async () => {
+    test('should delete a playlist', async () => {
       const playlist = await cache.createPlaylist({ name: 'To Delete' });
       await cache.deletePlaylist(playlist.id);
 
@@ -197,7 +197,7 @@ describe('MetadataCache', () => {
       assert.strictEqual(playlists.length, 0);
     });
 
-    it('should add and get tracks in playlist', async () => {
+    test('should add and get tracks in playlist', async () => {
       // Create track
       await cache.upsertTrack({ path: '/song.mp3', title: 'Test Song' });
       const tracks = await cache.getAllTracks();
@@ -213,7 +213,7 @@ describe('MetadataCache', () => {
       assert.strictEqual(playlistTracks[0].id, trackId);
     });
 
-    it('should remove track from playlist', async () => {
+    test('should remove track from playlist', async () => {
       await cache.upsertTrack({ path: '/song.mp3', title: 'Test Song' });
       const tracks = await cache.getAllTracks();
       const trackId = tracks[0].id;
@@ -227,8 +227,8 @@ describe('MetadataCache', () => {
     });
   });
 
-  describe('persistence', () => {
-    it('should persist data across saves', async () => {
+  suite('persistence', () => {
+    test('should persist data across saves', async () => {
       await cache.upsertTrack({ path: '/persist.mp3', title: 'Persist Me' });
       await cache.save();
       cache.close();

@@ -38,6 +38,22 @@ const (
 	CmdGetAudioData        CommandType = "getAudioData"
 	CmdSubscribeAudioData  CommandType = "subscribeAudioData"
 	CmdUnsubscribeAudioData CommandType = "unsubscribeAudioData"
+
+	// Audio analysis commands
+	CmdGetAnalysisStatus  CommandType = "getAnalysisStatus"
+	CmdStartAnalysis      CommandType = "startAnalysis"
+	CmdPauseAnalysis      CommandType = "pauseAnalysis"
+	CmdResumeAnalysis     CommandType = "resumeAnalysis"
+	CmdRebuildGraph       CommandType = "rebuildGraph"
+
+	// Similarity commands
+	CmdGetSimilarTracks    CommandType = "getSimilarTracks"
+	CmdGetCommunities      CommandType = "getCommunities"
+	CmdGetCommunityTracks  CommandType = "getCommunityTracks"
+	CmdGetBridgeTracks     CommandType = "getBridgeTracks"
+	CmdExplainSimilarity   CommandType = "explainSimilarity"
+	CmdSetContinueMode     CommandType = "setContinueMode"
+	CmdGetContinueMode     CommandType = "getContinueMode"
 )
 
 // PushMessage represents a server-initiated message (no request needed)
@@ -263,6 +279,97 @@ type AudioDataResponse struct {
 	Position int64 `json:"position"`
 	// Timestamp is when the audio data was captured (Unix ms)
 	Timestamp int64 `json:"timestamp"`
+}
+
+// AnalysisStatusResponse is the response to getAnalysisStatus command
+type AnalysisStatusResponse struct {
+	Status       string `json:"status"` // "idle", "running", "paused", "complete"
+	TotalTracks  int    `json:"totalTracks"`
+	Analyzed     int    `json:"analyzed"`
+	InProgress   int    `json:"inProgress"`
+	Failed       int    `json:"failed"`
+	Communities  int    `json:"communities"`
+	Message      string `json:"message"`
+}
+
+// GetSimilarTracksRequest is the request for getSimilarTracks command
+type GetSimilarTracksRequest struct {
+	TrackPath string `json:"trackPath"`
+	Limit     int    `json:"limit"`
+}
+
+// SimilarTrackInfo contains info about a similar track
+type SimilarTrackInfo struct {
+	Path       string  `json:"path"`
+	Similarity float32 `json:"similarity"`
+}
+
+// GetSimilarTracksResponse is the response to getSimilarTracks command
+type GetSimilarTracksResponse struct {
+	Tracks []SimilarTrackInfo `json:"tracks"`
+}
+
+// CommunityInfo contains information about a detected community
+type CommunityInfo struct {
+	ID          int      `json:"id"`
+	Name        string   `json:"name"`
+	TrackCount  int      `json:"trackCount"`
+	TopFeatures []string `json:"topFeatures"`
+}
+
+// GetCommunitiesResponse is the response to getCommunities command
+type GetCommunitiesResponse struct {
+	Communities []CommunityInfo `json:"communities"`
+}
+
+// GetCommunityTracksRequest is the request for getCommunityTracks command
+type GetCommunityTracksRequest struct {
+	CommunityID int `json:"communityId"`
+	Limit       int `json:"limit"`
+}
+
+// GetCommunityTracksResponse is the response to getCommunityTracks command
+type GetCommunityTracksResponse struct {
+	Tracks []string `json:"tracks"`
+}
+
+// GetBridgeTracksRequest is the request for getBridgeTracks command
+type GetBridgeTracksRequest struct {
+	MinScore float32 `json:"minScore"`
+	Limit    int     `json:"limit"`
+}
+
+// GetBridgeTracksResponse is the response to getBridgeTracks command
+type GetBridgeTracksResponse struct {
+	Tracks []string `json:"tracks"`
+}
+
+// ExplainSimilarityRequest is the request for explainSimilarity command
+type ExplainSimilarityRequest struct {
+	TrackA string `json:"trackA"`
+	TrackB string `json:"trackB"`
+}
+
+// ExplainSimilarityResponse is the response to explainSimilarity command
+type ExplainSimilarityResponse struct {
+	Overall     float32 `json:"overall"`
+	MFCC        float32 `json:"mfcc"`
+	Tempo       float32 `json:"tempo"`
+	Spectral    float32 `json:"spectral"`
+	Energy      float32 `json:"energy"`
+	Bands       float32 `json:"bands"`
+	Instruments float32 `json:"instruments"`
+	Context     float32 `json:"context"`
+}
+
+// SetContinueModeRequest is the request for setContinueMode command
+type SetContinueModeRequest struct {
+	Mode string `json:"mode"` // "off", "similar", "random"
+}
+
+// GetContinueModeResponse is the response to getContinueMode command
+type GetContinueModeResponse struct {
+	Mode string `json:"mode"` // "off", "similar", "random"
 }
 
 // EncodeRequest encodes a request to JSON

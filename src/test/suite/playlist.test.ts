@@ -7,18 +7,18 @@ import { PlaylistManager } from '../../playlist/manager';
 import { MetadataCache } from '../../metadata/cache';
 import { createTempDbPath, cleanupTestDb } from '../mocks/database';
 
-// Mocha globals are provided by the VS Code test runner
-declare const describe: Mocha.SuiteFunction;
-declare const it: Mocha.TestFunction;
-declare const beforeEach: Mocha.HookFunction;
-declare const afterEach: Mocha.HookFunction;
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
+declare const setup: Mocha.HookFunction;
+declare const teardown: Mocha.HookFunction;
 
-describe('PlaylistManager', () => {
+suite('PlaylistManager', () => {
   let manager: PlaylistManager;
   let cache: MetadataCache;
   let dbPath: string;
 
-  beforeEach(async () => {
+  setup(async () => {
     dbPath = createTempDbPath();
     cache = new MetadataCache(dbPath);
     await cache.initialize();
@@ -30,7 +30,7 @@ describe('PlaylistManager', () => {
     await cache.upsertTrack({ path: '/track3.mp3', title: 'Track 3' });
   });
 
-  afterEach(() => {
+  teardown(() => {
     cache.close();
     cleanupTestDb(dbPath);
   });
@@ -40,13 +40,13 @@ describe('PlaylistManager', () => {
     return tracks.map((t) => t.id);
   }
 
-  it('should create a playlist', async () => {
+  test('should create a playlist', async () => {
     const playlist = await manager.create('My Playlist');
     assert.ok(playlist.id);
     assert.strictEqual(playlist.name, 'My Playlist');
   });
 
-  it('should get all playlists', async () => {
+  test('should get all playlists', async () => {
     await manager.create('Playlist 1');
     await manager.create('Playlist 2');
 
@@ -54,7 +54,7 @@ describe('PlaylistManager', () => {
     assert.strictEqual(playlists.length, 2);
   });
 
-  it('should delete a playlist', async () => {
+  test('should delete a playlist', async () => {
     const playlist = await manager.create('To Delete');
     await manager.delete(playlist.id);
 
@@ -62,7 +62,7 @@ describe('PlaylistManager', () => {
     assert.strictEqual(playlists.length, 0);
   });
 
-  it('should add tracks to playlist', async () => {
+  test('should add tracks to playlist', async () => {
     const trackIds = await getTrackIds();
     const playlist = await manager.create('Test');
 
@@ -73,7 +73,7 @@ describe('PlaylistManager', () => {
     assert.strictEqual(tracks.length, 2);
   });
 
-  it('should add multiple tracks at once', async () => {
+  test('should add multiple tracks at once', async () => {
     const trackIds = await getTrackIds();
     const playlist = await manager.create('Test');
 
@@ -83,7 +83,7 @@ describe('PlaylistManager', () => {
     assert.strictEqual(tracks.length, 3);
   });
 
-  it('should remove track from playlist', async () => {
+  test('should remove track from playlist', async () => {
     const trackIds = await getTrackIds();
     const playlist = await manager.create('Test');
 
@@ -94,7 +94,7 @@ describe('PlaylistManager', () => {
     assert.strictEqual(tracks.length, 2);
   });
 
-  it('should reorder tracks', async () => {
+  test('should reorder tracks', async () => {
     const trackIds = await getTrackIds();
     const playlist = await manager.create('Test');
 
@@ -111,7 +111,7 @@ describe('PlaylistManager', () => {
     assert.strictEqual(tracks[2].id, trackIds[1]);
   });
 
-  it('should get track paths for a playlist', async () => {
+  test('should get track paths for a playlist', async () => {
     const trackIds = await getTrackIds();
     const playlist = await manager.create('Test');
 
@@ -124,7 +124,7 @@ describe('PlaylistManager', () => {
     assert.ok(paths.includes('/track3.mp3'));
   });
 
-  it('should duplicate a playlist', async () => {
+  test('should duplicate a playlist', async () => {
     const trackIds = await getTrackIds();
     const original = await manager.create('Original');
     await manager.addTracks(original.id, trackIds);

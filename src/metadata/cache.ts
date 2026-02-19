@@ -25,7 +25,7 @@ import {
 type SqlJsDatabase = import('sql.js').Database;
 type SqlJsStatic = import('sql.js').SqlJsStatic;
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * Metadata cache using SQLite (via sql.js WASM)
@@ -82,6 +82,9 @@ export class MetadataCache {
     // Run pending migrations
     if (currentVersion < 1) {
       await this.migration001();
+    }
+    if (currentVersion < 2) {
+      await this.migration002();
     }
   }
 
@@ -157,6 +160,67 @@ export class MetadataCache {
 
     // Record migration
     this.db.run('INSERT INTO migrations (version, applied_at) VALUES (1, ?)', [Date.now()]);
+
+    await this.save();
+  }
+
+  /**
+   * Migration 002: Audio analysis and similarity tables
+   */
+  private async migration002(): Promise<void> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    // Audio features table - stores extracted audio characteristics
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS audio_features (
+        track_path TEXT PRIMARY KEY,
+        features BLOB NOT NULL,
+        version INTEGER NOT NULL,
+        analyzed_at INTEGER NOT NULL,
+        file_hash TEXT NOT NULL
+      )
+    `);
+
+    // Similarity edges table - stores weighted similarity connections
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS similarity_edges (
+        source_path TEXT NOT NULL,
+        target_path TEXT NOT NULL,
+        weight REAL NOT NULL,
+        PRIMARY KEY (source_path, target_path)
+      )
+    `);
+
+    // Track communities table - stores community assignments
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS track_communities (
+        track_path TEXT PRIMARY KEY,
+        community_id INTEGER NOT NULL,
+        centrality REAL NOT NULL,
+        bridge_score REAL NOT NULL
+      )
+    `);
+
+    // Communities table - stores detected music clusters
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS communities (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        track_count INTEGER NOT NULL,
+        centroid BLOB NOT NULL,
+        top_features TEXT NOT NULL
+      )
+    `);
+
+    // Create indexes
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_features_version ON audio_features(version)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_edges_source ON similarity_edges(source_path)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_communities_id ON track_communities(community_id)');
+
+    // Record migration
+    this.db.run('INSERT INTO migrations (version, applied_at) VALUES (2, ?)', [Date.now()]);
 
     await this.save();
   }
@@ -610,5 +674,173 @@ export class MetadataCache {
 
     this.db.run('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?', [playlistId, trackId]);
     this.db.run('UPDATE playlists SET updated_at = ? WHERE id = ?', [Date.now(), playlistId]);
+  }
+
+  // =========================================================================
+  // Audio Features Operations
+  // =========================================================================
+
+  /**
+   * Get analysis status
+   */
+  async getAnalysisStatus(): Promise<{
+    totalTracks: number;
+    analyzedTracks: number;
+    communities: number;
+  }> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const totalResult = this.db.exec('SELECT COUNT(*) FROM tracks');
+    const analyzedResult = this.db.exec('SELECT COUNT(*) FROM audio_features');
+    const communitiesResult = this.db.exec('SELECT COUNT(*) FROM communities');
+
+    return {
+      totalTracks: (totalResult[0]?.values[0]?.[0] as number) || 0,
+      analyzedTracks: (analyzedResult[0]?.values[0]?.[0] as number) || 0,
+      communities: (communitiesResult[0]?.values[0]?.[0] as number) || 0,
+    };
+  }
+
+  /**
+   * Get tracks that need analysis
+   */
+  async getTracksNeedingAnalysis(version: number): Promise<string[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const result = this.db.exec(`
+      SELECT t.path FROM tracks t
+      LEFT JOIN audio_features af ON t.path = af.track_path
+      WHERE af.track_path IS NULL OR af.version < ?
+    `, [version]);
+
+    if (result.length === 0) {
+      return [];
+    }
+
+    return result[0].values.map((row) => row[0] as string);
+  }
+
+  /**
+   * Check if a track has features
+   */
+  async hasFeatures(trackPath: string): Promise<boolean> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const result = this.db.exec(
+      'SELECT 1 FROM audio_features WHERE track_path = ?',
+      [trackPath]
+    );
+
+    return result.length > 0 && result[0].values.length > 0;
+  }
+
+  /**
+   * Get all communities
+   */
+  async getCommunities(): Promise<Array<{
+    id: number;
+    name: string;
+    trackCount: number;
+    topFeatures: string[];
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const result = this.db.exec('SELECT id, name, track_count, top_features FROM communities ORDER BY track_count DESC');
+    if (result.length === 0) {
+      return [];
+    }
+
+    return result[0].values.map((row) => ({
+      id: row[0] as number,
+      name: row[1] as string,
+      trackCount: row[2] as number,
+      topFeatures: JSON.parse(row[3] as string) as string[],
+    }));
+  }
+
+  /**
+   * Get tracks in a community
+   */
+  async getCommunityTracks(communityId: number): Promise<Track[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const result = this.db.exec(`
+      SELECT t.* FROM tracks t
+      JOIN track_communities tc ON t.path = tc.track_path
+      WHERE tc.community_id = ?
+      ORDER BY tc.centrality DESC
+    `, [communityId]);
+
+    if (result.length === 0) {
+      return [];
+    }
+
+    return result[0].values.map((row) => this.rowToTrack(result[0].columns, row));
+  }
+
+  /**
+   * Get bridge tracks (tracks that connect different communities)
+   */
+  async getBridgeTracks(minScore: number = 0.5): Promise<Track[]> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const result = this.db.exec(`
+      SELECT t.* FROM tracks t
+      JOIN track_communities tc ON t.path = tc.track_path
+      WHERE tc.bridge_score >= ?
+      ORDER BY tc.bridge_score DESC
+      LIMIT 50
+    `, [minScore]);
+
+    if (result.length === 0) {
+      return [];
+    }
+
+    return result[0].values.map((row) => this.rowToTrack(result[0].columns, row));
+  }
+
+  /**
+   * Get similar tracks
+   */
+  async getSimilarTracks(trackPath: string, limit: number = 10): Promise<Array<{
+    track: Track;
+    similarity: number;
+  }>> {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    const result = this.db.exec(`
+      SELECT t.*, se.weight as similarity FROM tracks t
+      JOIN similarity_edges se ON t.path = se.target_path
+      WHERE se.source_path = ?
+      ORDER BY se.weight DESC
+      LIMIT ?
+    `, [trackPath, limit]);
+
+    if (result.length === 0) {
+      return [];
+    }
+
+    const columns = result[0].columns;
+    const simIndex = columns.indexOf('similarity');
+
+    return result[0].values.map((row) => ({
+      track: this.rowToTrack(columns.filter(c => c !== 'similarity'), 
+        row.filter((_, i) => i !== simIndex)),
+      similarity: row[simIndex] as number,
+    }));
   }
 }

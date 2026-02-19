@@ -9,6 +9,14 @@ import * as path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { IPCClient } from '../../daemon/client';
 
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
+declare const setup: Mocha.HookFunction;
+declare const teardown: Mocha.HookFunction;
+declare const suiteSetup: Mocha.HookFunction;
+declare const suiteTeardown: Mocha.HookFunction;
+
 // Skip these tests if daemon binary is not available
 const DAEMON_PATH = path.join(__dirname, '../../../../bin/musicd');
 

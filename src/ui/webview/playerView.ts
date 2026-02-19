@@ -108,6 +108,11 @@ export class PlayerWebviewPanel {
             await this.client.setVolume(message.value);
           }
           break;
+        case 'setContinueMode':
+          if (typeof message.value === 'string') {
+            await this.client.send('setContinueMode', { mode: message.value });
+          }
+          break;
       }
     } catch (err) {
       vscode.window.showErrorMessage(`Command failed: ${err}`);
@@ -173,20 +178,24 @@ export class PlayerWebviewPanel {
     <style>
         :root {
             --bg-primary: #0d1117;
-            --bg-secondary: #161b22;
-            --bg-tertiary: #21262d;
-            --text-primary: #f0f6fc;
-            --text-secondary: #8b949e;
-            --accent: #58a6ff;
-            --accent-hover: #79c0ff;
-            --progress-bg: #30363d;
-            --progress-fill: #58a6ff;
+            --bg-secondary: #1a1a2e;
+            --bg-tertiary: #16213e;
+            --bar-bg: linear-gradient(180deg, #2d2d44 0%, #1a1a2e 50%, #0f0f1a 100%);
+            --bar-border: #3d3d5c;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --text-muted: #6a6a7a;
+            --accent: #ff6b35;
+            --accent-hover: #ff8c5a;
+            --progress-bg: #3d3d5c;
+            --progress-fill: linear-gradient(90deg, #ff6b35, #ff8c5a);
+            --progress-buffered: #4a4a6a;
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         html, body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'Segoe UI', 'Trebuchet MS', system-ui, -apple-system, sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             height: 100%;
@@ -199,180 +208,344 @@ export class PlayerWebviewPanel {
             top: 0;
             left: 0;
             width: 100%;
-            height: 100%;
+            height: calc(100% - 72px);
             z-index: 0;
         }
 
-        /* Player UI overlay */
-        .player-container {
-            position: relative;
-            z-index: 1;
-            min-height: 100vh;
+        /* MySpace-style bottom player bar */
+        .player-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 72px;
+            background: var(--bar-bg);
+            border-top: 1px solid var(--bar-border);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+            z-index: 100;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Left section - Controls */
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .control-btn {
+            background: linear-gradient(180deg, #4a4a6a 0%, #2d2d44 100%);
+            border: 1px solid #5a5a7a;
+            color: var(--text-primary);
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            border-radius: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            transition: all 0.15s ease;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
         }
 
-        .player {
-            background: rgba(22, 27, 34, 0.85);
-            backdrop-filter: blur(20px);
-            border-radius: 16px;
-            padding: 32px;
-            max-width: 400px;
-            width: 100%;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        .control-btn:hover {
+            background: linear-gradient(180deg, #5a5a7a 0%, #3d3d54 100%);
+            border-color: var(--accent);
         }
 
-        .visualizer-box {
-            width: 100%;
-            aspect-ratio: 1;
-            background: rgba(33, 38, 45, 0.5);
-            border-radius: 12px;
-            margin-bottom: 24px;
-            position: relative;
-            overflow: hidden;
+        .control-btn:active {
+            background: linear-gradient(180deg, #2d2d44 0%, #4a4a6a 100%);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
-        .visualizer-box canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+        .control-btn.primary {
+            width: 44px;
+            height: 44px;
+            background: linear-gradient(180deg, var(--accent) 0%, #cc5429 100%);
+            border-color: #ff8c5a;
         }
 
-        .track-info {
+        .control-btn.primary:hover {
+            background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 100%);
+        }
+
+        .control-btn svg { width: 18px; height: 18px; fill: currentColor; }
+        .control-btn.primary svg { width: 22px; height: 22px; }
+        
+        .control-btn.active {
+            background: linear-gradient(180deg, var(--accent) 0%, #cc5429 100%);
+            border-color: #ff8c5a;
+            color: white;
+        }
+        
+        .control-btn.active:hover {
+            background: linear-gradient(180deg, var(--accent-hover) 0%, var(--accent) 100%);
+        }
+
+        /* Center section - Progress */
+        .progress-section {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 0 20px;
+            min-width: 0;
+        }
+
+        .time-current, .time-total {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'Consolas', 'Monaco', monospace;
+            min-width: 40px;
             text-align: center;
-            margin-bottom: 24px;
         }
 
-        .track-title {
-            font-size: 1.4rem;
-            font-weight: 600;
-            margin-bottom: 8px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+        .progress-bar-container {
+            flex: 1;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
         }
-
-        .track-artist {
-            color: var(--text-secondary);
-            font-size: 1rem;
-        }
-
-        .progress-container { margin-bottom: 20px; }
 
         .progress-bar {
             width: 100%;
-            height: 6px;
+            height: 8px;
             background: var(--progress-bg);
-            border-radius: 3px;
-            cursor: pointer;
+            border-radius: 4px;
             position: relative;
+            overflow: hidden;
+            box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
         }
 
         .progress-fill {
             height: 100%;
             background: var(--progress-fill);
-            border-radius: 3px;
-            transition: width 0.1s ease;
+            border-radius: 4px;
+            position: relative;
+            transition: width 0.1s linear;
         }
 
-        .time-display {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            margin-top: 8px;
-        }
-
-        .controls {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 24px;
-        }
-
-        .control-btn {
-            background: none;
-            border: none;
-            color: var(--text-primary);
-            cursor: pointer;
-            padding: 12px;
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            background: #fff;
             border-radius: 50%;
-            transition: all 0.2s ease;
+            box-shadow: 0 0 4px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Right section - Track info & Volume */
+        .info-section {
             display: flex;
             align-items: center;
-            justify-content: center;
+            gap: 16px;
+            flex-shrink: 0;
+            max-width: 350px;
         }
 
-        .control-btn:hover {
-            background: var(--bg-tertiary);
-            color: var(--accent);
+        .track-info {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            max-width: 200px;
         }
 
-        .control-btn.primary {
-            background: var(--accent);
-            color: var(--bg-primary);
-            width: 64px;
-            height: 64px;
+        .track-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .control-btn.primary:hover { background: var(--accent-hover); }
-        .control-btn svg { width: 24px; height: 24px; }
-        .control-btn.primary svg { width: 32px; height: 32px; }
+        .track-artist {
+            font-size: 11px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
+        .track-album {
+            font-size: 10px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-style: italic;
+        }
+
+        /* Volume control */
         .volume-container {
             display: flex;
             align-items: center;
-            gap: 12px;
-            margin-top: 24px;
+            gap: 6px;
         }
 
+        .volume-icon {
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .volume-icon:hover { color: var(--accent); }
+        .volume-icon svg { width: 18px; height: 18px; }
+
         .volume-slider {
-            flex: 1;
+            width: 80px;
             -webkit-appearance: none;
-            height: 4px;
+            height: 6px;
             background: var(--progress-bg);
-            border-radius: 2px;
+            border-radius: 3px;
             cursor: pointer;
         }
 
         .volume-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
+            width: 12px;
+            height: 12px;
             background: var(--accent);
             border-radius: 50%;
             cursor: pointer;
+            box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
         }
 
-        .not-playing {
-            text-align: center;
-            color: var(--text-secondary);
-            padding: 40px 20px;
+        .volume-slider::-webkit-slider-thumb:hover {
+            background: var(--accent-hover);
         }
 
-        .not-playing svg {
-            width: 64px;
-            height: 64px;
-            margin-bottom: 16px;
+        /* Not playing state */
+        .not-playing-bar {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            color: var(--text-muted);
+        }
+
+        .not-playing-bar svg {
+            width: 24px;
+            height: 24px;
             opacity: 0.5;
+        }
+
+        .not-playing-bar span {
+            font-size: 13px;
+        }
+
+        /* Center info display area (above player bar) */
+        .center-display {
+            position: fixed;
+            bottom: 92px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(26, 26, 46, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--bar-border);
+            border-radius: 12px;
+            padding: 20px 32px;
+            text-align: center;
+            z-index: 50;
+            min-width: 300px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .center-display.hidden { display: none; }
+
+        .center-track-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .center-track-artist {
+            font-size: 1.1rem;
+            color: var(--accent);
+            margin-bottom: 4px;
+        }
+
+        .center-track-album {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+
+        /* Queue position indicator */
+        .queue-info {
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-left: 12px;
+            padding: 2px 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
         }
     </style>
 </head>
 <body>
     <canvas id="visualizer"></canvas>
-    <div class="player-container">
-        <div class="player">
-            <div id="content">
-                <div class="not-playing">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-                    </svg>
-                    <p>No track playing</p>
-                    <p style="font-size: 0.9em; margin-top: 8px;">Select a track from your library to start playing</p>
+    
+    <!-- Center display for track info -->
+    <div id="centerDisplay" class="center-display hidden">
+        <div class="center-track-title" id="centerTitle">-</div>
+        <div class="center-track-artist" id="centerArtist">-</div>
+        <div class="center-track-album" id="centerAlbum"></div>
+    </div>
+
+    <!-- Bottom player bar -->
+    <div class="player-bar" id="playerBar">
+        <div id="content" style="display: contents;">
+            <!-- Controls left -->
+            <div class="controls">
+                <button class="control-btn" id="prevBtn" title="Previous">
+                    <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                </button>
+                <button class="control-btn primary" id="playPauseBtn" title="Play">
+                    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                <button class="control-btn" id="nextBtn" title="Next">
+                    <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                </button>
+                <button class="control-btn" id="continueModeBtn" title="Continue with similar music when queue ends">
+                    <svg viewBox="0 0 24 24"><path d="M18.6 6.62c-1.44 0-2.8.56-3.77 1.53L12 10.66 10.48 12h.01L7.8 14.39c-.64.64-1.49.99-2.4.99-1.87 0-3.39-1.51-3.39-3.38S3.53 8.62 5.4 8.62c.91 0 1.76.35 2.44 1.03l1.13 1 1.51-1.34L9.22 8.2C8.2 7.18 6.84 6.62 5.4 6.62 2.42 6.62 0 9.04 0 12s2.42 5.38 5.4 5.38c1.44 0 2.8-.56 3.77-1.53l2.83-2.5.01.01L13.52 12h-.01l2.69-2.39c.64-.64 1.49-.99 2.4-.99 1.87 0 3.39 1.51 3.39 3.38s-1.52 3.38-3.39 3.38c-.9 0-1.76-.35-2.44-1.03l-1.14-1.01-1.51 1.34 1.27 1.12c1.02 1.01 2.37 1.57 3.82 1.57 2.98 0 5.4-2.41 5.4-5.38s-2.42-5.37-5.4-5.37z"/></svg>
+                </button>
+            </div>
+
+            <!-- Progress center -->
+            <div class="progress-section">
+                <span class="time-current" id="timeCurrent">0:00</span>
+                <div class="progress-bar-container" id="progressBar">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+                <span class="time-total" id="timeTotal">0:00</span>
+            </div>
+
+            <!-- Info & Volume right -->
+            <div class="info-section">
+                <div class="track-info">
+                    <div class="track-title" id="trackTitle">No track playing</div>
+                    <div class="track-artist" id="trackArtist">Select a track from your library</div>
+                    <div class="track-album" id="trackAlbum"></div>
+                </div>
+                <span class="queue-info" id="queueInfo" style="display: none;">1/1</span>
+                <div class="volume-container">
+                    <div class="volume-icon" id="volumeIcon" title="Mute">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                        </svg>
+                    </div>
+                    <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="100">
                 </div>
             </div>
         </div>
@@ -646,98 +819,172 @@ export class PlayerWebviewPanel {
             return minutes + ':' + seconds.toString().padStart(2, '0');
         }
 
-        function renderPlayer(status) {
-            const content = document.getElementById('content');
+        // Volume icons for different states
+        const volumeIcons = {
+            muted: '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>',
+            low: '<path d="M7 9v6h4l5 5V4l-5 5H7z"/>',
+            medium: '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>',
+            high: '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>'
+        };
+
+        function getVolumeIcon(volume) {
+            if (volume === 0) return volumeIcons.muted;
+            if (volume < 0.33) return volumeIcons.low;
+            if (volume < 0.66) return volumeIcons.medium;
+            return volumeIcons.high;
+        }
+
+        let lastVolume = 1; // For mute toggle
+        let hasTrack = false;
+
+        function updatePlayer(status) {
+            const isPlaying = status.state === 'playing';
+            hasTrack = status.path && status.state !== 'stopped';
             
-            if (status.state === 'stopped' || !status.path) {
-                content.innerHTML = \`
-                    <div class="not-playing">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
-                        </svg>
-                        <p>No track playing</p>
-                        <p style="font-size: 0.9em; margin-top: 8px;">Select a track from your library to start playing</p>
-                    </div>
-                \`;
+            // Update center display
+            const centerDisplay = document.getElementById('centerDisplay');
+            const centerTitle = document.getElementById('centerTitle');
+            const centerArtist = document.getElementById('centerArtist');
+            const centerAlbum = document.getElementById('centerAlbum');
+            
+            if (hasTrack) {
+                centerDisplay.classList.remove('hidden');
+                const title = status.metadata?.title || status.path.split('/').pop() || 'Unknown';
+                const artist = status.metadata?.artist || 'Unknown Artist';
+                const album = status.metadata?.album || '';
+                
+                centerTitle.textContent = title;
+                centerArtist.textContent = artist;
+                centerAlbum.textContent = album;
+            } else {
+                centerDisplay.classList.add('hidden');
+            }
+            
+            // Update bottom bar elements
+            const playPauseBtn = document.getElementById('playPauseBtn');
+            const progressFill = document.getElementById('progressFill');
+            const timeCurrent = document.getElementById('timeCurrent');
+            const timeTotal = document.getElementById('timeTotal');
+            const trackTitle = document.getElementById('trackTitle');
+            const trackArtist = document.getElementById('trackArtist');
+            const trackAlbum = document.getElementById('trackAlbum');
+            const volumeSlider = document.getElementById('volumeSlider');
+            const volumeIcon = document.getElementById('volumeIcon');
+            const queueInfo = document.getElementById('queueInfo');
+            
+            // Play/Pause button icon
+            if (isPlaying) {
+                playPauseBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+                playPauseBtn.title = 'Pause';
+            } else {
+                playPauseBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+                playPauseBtn.title = 'Play';
+            }
+            
+            // Progress
+            const progress = status.duration > 0 ? (status.position / status.duration * 100) : 0;
+            progressFill.style.width = progress + '%';
+            timeCurrent.textContent = formatTime(status.position || 0);
+            timeTotal.textContent = formatTime(status.duration || 0);
+            
+            // Track info in bottom bar
+            if (hasTrack) {
+                const title = status.metadata?.title || status.path.split('/').pop() || 'Unknown';
+                const artist = status.metadata?.artist || 'Unknown Artist';
+                const album = status.metadata?.album || '';
+                
+                trackTitle.textContent = title;
+                trackArtist.textContent = artist;
+                trackAlbum.textContent = album;
+            } else {
+                trackTitle.textContent = 'No track playing';
+                trackArtist.textContent = 'Select a track from your library';
+                trackAlbum.textContent = '';
+                
                 // Reset audio bands when stopped
                 audioBands.fill(0);
-                return;
             }
-
-            const title = status.metadata?.title || status.path.split('/').pop() || 'Unknown';
-            const artist = status.metadata?.artist || 'Unknown Artist';
-            const progress = status.duration > 0 ? (status.position / status.duration * 100) : 0;
-            const playIcon = status.state === 'playing' 
-                ? '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'
-                : '<path d="M8 5v14l11-7z"/>';
-
-            content.innerHTML = \`
-                <div class="track-info">
-                    <div class="track-title">\${title}</div>
-                    <div class="track-artist">\${artist}</div>
-                </div>
-
-                <div class="progress-container">
-                    <div class="progress-bar" id="progressBar">
-                        <div class="progress-fill" style="width: \${progress}%"></div>
-                    </div>
-                    <div class="time-display">
-                        <span>\${formatTime(status.position)}</span>
-                        <span>\${formatTime(status.duration)}</span>
-                    </div>
-                </div>
-
-                <div class="controls">
-                    <button class="control-btn" id="prevBtn" title="Previous">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
-                        </svg>
-                    </button>
-                    <button class="control-btn primary" id="playPauseBtn" title="Play/Pause">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            \${playIcon}
-                        </svg>
-                    </button>
-                    <button class="control-btn" id="nextBtn" title="Next">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                        </svg>
-                    </button>
-                </div>
-
-                <div class="volume-container">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-                        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-                    </svg>
-                    <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="\${Math.round(status.volume * 100)}">
-                </div>
-            \`;
-
-            // Add event listeners
+            
+            // Queue info
+            if (status.queueSize > 0) {
+                queueInfo.style.display = 'inline';
+                queueInfo.textContent = (status.queueIndex + 1) + '/' + status.queueSize;
+            } else {
+                queueInfo.style.display = 'none';
+            }
+            
+            // Volume (don't update while dragging)
+            if (!volumeSlider.matches(':active')) {
+                volumeSlider.value = Math.round((status.volume || 0) * 100);
+            }
+            volumeIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor">' + getVolumeIcon(status.volume || 0) + '</svg>';
+        }
+        
+        // Set up event listeners once (not on every render)
+        function initEventListeners() {
             document.getElementById('prevBtn').addEventListener('click', () => {
                 vscode.postMessage({ command: 'previous' });
             });
 
             document.getElementById('playPauseBtn').addEventListener('click', () => {
-                vscode.postMessage({ command: status.state === 'playing' ? 'pause' : 'play' });
+                vscode.postMessage({ command: currentStatus?.state === 'playing' ? 'pause' : 'play' });
             });
 
             document.getElementById('nextBtn').addEventListener('click', () => {
                 vscode.postMessage({ command: 'next' });
             });
+            
+            // Continue mode toggle
+            let continueMode = 'off';
+            const continueModeBtn = document.getElementById('continueModeBtn');
+            continueModeBtn.addEventListener('click', () => {
+                // Cycle through modes: off -> similar -> off
+                continueMode = continueMode === 'off' ? 'similar' : 'off';
+                vscode.postMessage({ command: 'setContinueMode', value: continueMode });
+                updateContinueModeButton();
+            });
+            
+            function updateContinueModeButton() {
+                if (continueMode === 'similar') {
+                    continueModeBtn.classList.add('active');
+                    continueModeBtn.title = 'Continue with similar music: ON';
+                } else {
+                    continueModeBtn.classList.remove('active');
+                    continueModeBtn.title = 'Continue with similar music when queue ends';
+                }
+            }
 
-            document.getElementById('progressBar').addEventListener('click', (e) => {
-                const rect = e.target.getBoundingClientRect();
-                const percent = (e.clientX - rect.left) / rect.width;
-                const position = Math.round(percent * status.duration);
+            // Progress bar click to seek
+            const progressContainer = document.getElementById('progressBar');
+            progressContainer.addEventListener('click', (e) => {
+                if (!currentStatus?.duration) return;
+                const rect = progressContainer.getBoundingClientRect();
+                const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                const position = Math.round(percent * currentStatus.duration);
                 vscode.postMessage({ command: 'seek', value: position });
             });
 
+            // Volume slider
             document.getElementById('volumeSlider').addEventListener('input', (e) => {
                 const volume = parseInt(e.target.value) / 100;
+                lastVolume = volume > 0 ? volume : lastVolume;
                 vscode.postMessage({ command: 'volume', value: volume });
             });
+            
+            // Volume icon click to mute/unmute
+            document.getElementById('volumeIcon').addEventListener('click', () => {
+                const current = currentStatus?.volume || 0;
+                if (current > 0) {
+                    lastVolume = current;
+                    vscode.postMessage({ command: 'volume', value: 0 });
+                } else {
+                    vscode.postMessage({ command: 'volume', value: lastVolume || 1 });
+                }
+            });
         }
+        
+        // Initialize event listeners
+        initEventListeners();
 
         // Handle messages from the extension
         let messageCount = 0;
@@ -759,7 +1006,7 @@ export class PlayerWebviewPanel {
                 if (message.debug) {
                     console.log('[Visualizer] Audio polling:', message.debug);
                 }
-                renderPlayer(currentStatus);
+                updatePlayer(currentStatus);
             } else if (message.type === 'audioData') {
                 // Buffer audio data for delay correction
                 // Data is applied in the animation loop when playback catches up
@@ -808,7 +1055,7 @@ export class PlayerWebviewPanel {
         });
 
         // Initial render
-        renderPlayer({ state: 'stopped', position: 0, duration: 0, volume: 1 });
+        updatePlayer({ state: 'stopped', position: 0, duration: 0, volume: 1, queueIndex: 0, queueSize: 0 });
     </script>
 </body>
 </html>`;

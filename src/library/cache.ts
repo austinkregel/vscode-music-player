@@ -283,9 +283,49 @@ export class LibraryCache {
 
   /**
    * Get albums for an artist
+   * Returns both NFO albums and albums derived from track metadata
    */
   getAlbumsForArtist(artistName: string): AlbumNFO[] {
-    return this.cache.albums.filter(album => album.artist === artistName);
+    const path = require('path');
+    const normalizedArtist = artistName.toLowerCase();
+    
+    // Start with NFO albums (case-insensitive match)
+    const nfoAlbums = this.cache.albums.filter(
+      album => album.artist?.toLowerCase() === normalizedArtist
+    );
+    
+    // Track which album paths we already have from NFO
+    const existingPaths = new Set(nfoAlbums.map(a => a.albumPath || (a.path ? path.dirname(a.path) : '')));
+    
+    // Find additional albums from track metadata
+    const trackAlbumMap = new Map<string, { title: string; path: string }>();
+    
+    for (const track of this.cache.tracks) {
+      // Check if track belongs to this artist
+      const trackArtist = track.metadata?.artist?.toLowerCase();
+      if (trackArtist !== normalizedArtist) {
+        continue;
+      }
+      
+      const dir = path.dirname(track.path);
+      if (existingPaths.has(dir) || trackAlbumMap.has(dir)) {
+        continue;
+      }
+      
+      // Use album name from track metadata if available, else folder name
+      const albumName = track.metadata?.album || path.basename(dir);
+      trackAlbumMap.set(dir, { title: albumName, path: dir });
+    }
+    
+    // Convert track-derived albums to AlbumNFO format
+    const trackAlbums: AlbumNFO[] = Array.from(trackAlbumMap.values()).map(a => ({
+      title: a.title,
+      artist: artistName,
+      path: a.path,
+      albumPath: a.path,
+    }));
+    
+    return [...nfoAlbums, ...trackAlbums];
   }
 
   /**

@@ -7,6 +7,10 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
+
 suite('Extension Test Suite', () => {
   vscode.window.showInformationMessage('Starting local-media extension tests...');
 

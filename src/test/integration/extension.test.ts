@@ -6,6 +6,10 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
+
 suite('Extension Integration', () => {
   test('Extension should be present', async () => {
     const ext = vscode.extensions.getExtension('austinkregel.local-media');

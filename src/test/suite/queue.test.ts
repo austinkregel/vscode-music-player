@@ -7,12 +7,12 @@ import { QueueManager } from '../../queue/manager';
 import { MockIPCClient } from '../mocks/ipcClient';
 import type { Track } from '../../types';
 
-// Mocha globals are provided by the VS Code test runner
-declare const describe: Mocha.SuiteFunction;
-declare const it: Mocha.TestFunction;
-declare const beforeEach: Mocha.HookFunction;
+// Mocha TDD globals are provided by the VS Code test runner
+declare const suite: Mocha.SuiteFunction;
+declare const test: Mocha.TestFunction;
+declare const setup: Mocha.HookFunction;
 
-describe('QueueManager', () => {
+suite('QueueManager', () => {
   let manager: QueueManager;
   let mockClient: MockIPCClient;
 
@@ -22,28 +22,28 @@ describe('QueueManager', () => {
     { id: '3', path: '/track3.mp3', title: 'Track 3', artist: 'Artist A' },
   ];
 
-  beforeEach(async () => {
+  setup(async () => {
     mockClient = new MockIPCClient();
     await mockClient.connect();
     // Cast to any to use the mock with the queue manager
     manager = new QueueManager(mockClient as any);
   });
 
-  describe('setQueue', () => {
-    it('should set the queue with tracks', async () => {
+  suite('setQueue', () => {
+    test('should set the queue with tracks', async () => {
       await manager.setQueue(testTracks);
       const queue = manager.getQueue();
       assert.strictEqual(queue.length, 3);
     });
 
-    it('should reset index when setting queue', async () => {
+    test('should reset index when setting queue', async () => {
       await manager.setQueue(testTracks);
       assert.strictEqual(manager.getCurrentIndex(), -1);
     });
   });
 
-  describe('addToQueue', () => {
-    it('should add tracks to existing queue', async () => {
+  suite('addToQueue', () => {
+    test('should add tracks to existing queue', async () => {
       await manager.setQueue(testTracks.slice(0, 2));
       await manager.addToQueue([testTracks[2]]);
 
@@ -52,8 +52,8 @@ describe('QueueManager', () => {
     });
   });
 
-  describe('clear', () => {
-    it('should clear the queue', async () => {
+  suite('clear', () => {
+    test('should clear the queue', async () => {
       await manager.setQueue(testTracks);
       await manager.clear();
 
@@ -62,15 +62,15 @@ describe('QueueManager', () => {
     });
   });
 
-  describe('playIndex', () => {
-    it('should play track at index', async () => {
+  suite('playIndex', () => {
+    test('should play track at index', async () => {
       await manager.setQueue(testTracks);
       await manager.playIndex(1);
 
       assert.strictEqual(manager.getCurrentIndex(), 1);
     });
 
-    it('should throw for invalid index', async () => {
+    test('should throw for invalid index', async () => {
       await manager.setQueue(testTracks);
 
       await assert.rejects(() => manager.playIndex(10));
@@ -78,65 +78,65 @@ describe('QueueManager', () => {
     });
   });
 
-  describe('next/previous', () => {
-    beforeEach(async () => {
+  suite('next/previous', () => {
+    setup(async () => {
       await manager.setQueue(testTracks);
       await manager.playIndex(0);
     });
 
-    it('should move to next track', async () => {
+    test('should move to next track', async () => {
       const result = await manager.next();
       assert.strictEqual(result, true);
       assert.strictEqual(manager.getCurrentIndex(), 1);
     });
 
-    it('should return false at end of queue', async () => {
+    test('should return false at end of queue', async () => {
       await manager.playIndex(2);
       const result = await manager.next();
       assert.strictEqual(result, false);
     });
 
-    it('should move to previous track', async () => {
+    test('should move to previous track', async () => {
       await manager.playIndex(1);
       const result = await manager.previous();
       assert.strictEqual(result, true);
       assert.strictEqual(manager.getCurrentIndex(), 0);
     });
 
-    it('should return false at beginning of queue', async () => {
+    test('should return false at beginning of queue', async () => {
       const result = await manager.previous();
       assert.strictEqual(result, false);
     });
   });
 
-  describe('repeat modes', () => {
-    beforeEach(async () => {
+  suite('repeat modes', () => {
+    setup(async () => {
       await manager.setQueue(testTracks);
       await manager.playIndex(0);
     });
 
-    it('should repeat one track', async () => {
+    test('should repeat one track', async () => {
       manager.setRepeat('one');
       await manager.next();
       assert.strictEqual(manager.getCurrentIndex(), 0);
     });
 
-    it('should repeat all tracks', async () => {
+    test('should repeat all tracks', async () => {
       manager.setRepeat('all');
       await manager.playIndex(2);
       await manager.next();
       assert.strictEqual(manager.getCurrentIndex(), 0);
     });
 
-    it('should wrap to end with repeat all on previous', async () => {
+    test('should wrap to end with repeat all on previous', async () => {
       manager.setRepeat('all');
       await manager.previous();
       assert.strictEqual(manager.getCurrentIndex(), 2);
     });
   });
 
-  describe('shuffle', () => {
-    it('should toggle shuffle mode', () => {
+  suite('shuffle', () => {
+    test('should toggle shuffle mode', () => {
       assert.strictEqual(manager.getShuffle(), false);
 
       manager.setShuffle(true);
@@ -147,32 +147,32 @@ describe('QueueManager', () => {
     });
   });
 
-  describe('removeAt', () => {
-    beforeEach(async () => {
+  suite('removeAt', () => {
+    setup(async () => {
       await manager.setQueue(testTracks);
       await manager.playIndex(1);
     });
 
-    it('should remove track and adjust index if before current', () => {
+    test('should remove track and adjust index if before current', () => {
       manager.removeAt(0);
       assert.strictEqual(manager.getQueue().length, 2);
       assert.strictEqual(manager.getCurrentIndex(), 0);
     });
 
-    it('should remove track without adjusting if after current', () => {
+    test('should remove track without adjusting if after current', () => {
       manager.removeAt(2);
       assert.strictEqual(manager.getQueue().length, 2);
       assert.strictEqual(manager.getCurrentIndex(), 1);
     });
   });
 
-  describe('move', () => {
-    beforeEach(async () => {
+  suite('move', () => {
+    setup(async () => {
       await manager.setQueue(testTracks);
       await manager.playIndex(1);
     });
 
-    it('should move track and adjust index', () => {
+    test('should move track and adjust index', () => {
       manager.move(0, 2); // Move first track to end
       const queue = manager.getQueue();
 
@@ -181,12 +181,12 @@ describe('QueueManager', () => {
     });
   });
 
-  describe('getCurrentItem', () => {
-    it('should return null when no track is playing', () => {
+  suite('getCurrentItem', () => {
+    test('should return null when no track is playing', () => {
       assert.strictEqual(manager.getCurrentItem(), null);
     });
 
-    it('should return current item', async () => {
+    test('should return current item', async () => {
       await manager.setQueue(testTracks);
       await manager.playIndex(0);
 

@@ -200,6 +200,42 @@
           "type": "string",
           "default": "",
           "description": "Custom path to the musicd daemon binary (leave empty to use bundled)"
+        },
+        "localMedia.smartQueue.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable smart queue continuation - automatically play similar music when the queue ends"
+        },
+        "localMedia.smartQueue.diversityBoost": {
+          "type": "number",
+          "default": 0.3,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Diversity boost factor (0-1). Higher values avoid playing same artist consecutively"
+        },
+        "localMedia.smartQueue.historyWindow": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 200,
+          "description": "Number of recently played tracks to exclude from recommendations"
+        },
+        "localMedia.smartQueue.preferBridgeTracks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Prefer 'bridge tracks' that connect different musical styles for smoother transitions"
+        },
+        "localMedia.analysis.maxCpuPercent": {
+          "type": "number",
+          "default": 50,
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Maximum CPU usage percentage for background audio analysis"
+        },
+        "localMedia.analysis.runOnScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically analyze new tracks after library scan"
         }
       }
     },
